@@ -2336,36 +2336,69 @@ const loader = (() => {
   const resetTargets = Array.from(wrap.querySelectorAll('[data-load-reset]:not([data-load-text])'));
   if (resetTargets.length) gsap.set(resetTargets, { autoAlpha: 1 });
 
-  // Text cycle (split chars in/out)
+  // Text cycle (split chars in/out) — paced so each label dwells long enough to read
   let firstWord, secondWord;
+  let firstReadyAt = 0;          // timestamp when first text finished animating IN
+  let secondReadyAt = 0;
+  let switchedText = false;
+  let secondShownAt = 0;
+  const MIN_FIRST_DWELL = 900;   // ms first text stays fully visible before swap
+  const MIN_SECOND_DWELL = 700;  // ms second text stays fully visible before exit
   if (textElements.length >= 2 && typeof SplitText !== 'undefined') {
     firstWord = new SplitText(textElements[0], { type: 'lines,chars', mask: 'lines' });
     secondWord = new SplitText(textElements[1], { type: 'lines,chars', mask: 'lines' });
     gsap.set([firstWord.chars, secondWord.chars], { autoAlpha: 0, yPercent: 125 });
     gsap.set(textElements, { autoAlpha: 1 });
-    gsap.to(firstWord.chars, { autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.015 }, ease: 'loader' });
+    gsap.to(firstWord.chars, {
+      autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.02 }, ease: 'loader',
+      onComplete() { firstReadyAt = performance.now(); maybeSwapText(); },
+    });
   }
 
   let currentProgress = 0;
-  let switchedText = false;
+  let pendingSwapTimer = null;
+  function maybeSwapText() {
+    if (switchedText || !firstWord || !secondWord) return;
+    if (currentProgress < 0.5) return;
+    if (firstReadyAt === 0) return;       // first text still animating in — wait for onComplete
+    const dwell = performance.now() - firstReadyAt;
+    if (dwell < MIN_FIRST_DWELL) {
+      if (pendingSwapTimer) clearTimeout(pendingSwapTimer);
+      pendingSwapTimer = setTimeout(maybeSwapText, MIN_FIRST_DWELL - dwell + 30);
+      return;
+    }
+    switchedText = true;
+    gsap.to(firstWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.3, stagger: { each: 0.015 }, ease: 'loader' });
+    gsap.to(secondWord.chars, {
+      autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.02 }, ease: 'loader',
+      onComplete() { secondReadyAt = performance.now(); },
+    }, '<0.15');
+  }
+
   function progress(p) {
     const v = Math.max(currentProgress, Math.min(1, p));
     currentProgress = v;
     gsap.to(progressBar, { scaleX: v, duration: 0.4, ease: 'loader' });
-    // Halfway: swap text
-    if (v >= 0.5 && !switchedText && firstWord && secondWord) {
-      switchedText = true;
-      gsap.to(firstWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.3, stagger: { each: 0.012 }, ease: 'loader' });
-      gsap.to(secondWord.chars, { autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.015 }, ease: 'loader' }, '<0.1');
-    }
+    if (v >= 0.5) maybeSwapText();
   }
 
   function finish() {
-    // Run exit: full bar, then collapse, then bg slides up out of view
+    // Defer exit until the second text has been on screen long enough to read
+    if (secondWord && switchedText) {
+      if (secondReadyAt === 0) { setTimeout(finish, 120); return; }
+      const dwell = performance.now() - secondReadyAt;
+      if (dwell < MIN_SECOND_DWELL) { setTimeout(finish, MIN_SECOND_DWELL - dwell + 30); return; }
+    } else if (firstWord && !switchedText) {
+      // Loader finished BEFORE the swap fired — give first text its dwell, then go
+      if (firstReadyAt === 0) { setTimeout(finish, 120); return; }
+      const dwell = performance.now() - firstReadyAt;
+      if (dwell < MIN_FIRST_DWELL) { setTimeout(finish, MIN_FIRST_DWELL - dwell + 30); return; }
+    }
     const tl = gsap.timeline({ defaults: { ease: 'loader' } });
     tl.to(progressBar, { scaleX: 1, duration: 0.35 });
     tl.to(logo, { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.35 }, '<');
-    if (secondWord) tl.to(secondWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.25, stagger: { each: 0.012 } }, '<0.05');
+    const lastWord = switchedText ? secondWord : firstWord;
+    if (lastWord) tl.to(lastWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.25, stagger: { each: 0.015 } }, '<0.05');
     tl.to(container, { autoAlpha: 0, duration: 0.3 });
     tl.to(progressBar, { scaleX: 0, transformOrigin: 'right center', duration: 0.3 }, '<');
     tl.to(bg, { yPercent: -101, duration: 0.6 });
