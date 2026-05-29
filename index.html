@@ -6,7 +6,7 @@
 <title>Polymarket Ballpit — Odds Visualized</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&family=VT323&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&family=VT323&family=Doto:wght@400;700;900&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/CustomEase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/SplitText.min.js"></script>
@@ -17,7 +17,7 @@
     --dim: #6b6b75;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; }
+  html, body { height: 100%; width: 100%; background: var(--bg); color: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; max-width: 100vw; }
   #canvas { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; }
   html, body { height: 100dvh; }
 
@@ -243,7 +243,7 @@ import RAPIER from 'rapier';
 // ─────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────
-const POLL_MS = 10000;       // odds poll interval
+const POLL_MS = 5000;        // odds poll interval — tight enough that odds + fill feel live
 const BOX_W = 20;            // box width (each half = 10)
 const BOX_H = 13;            // box height
 const BOX_D = 9;             // box depth
@@ -258,7 +258,16 @@ const MAX_PER_SIDE = {
   crypto:     280,
   oil:         45,  // drums are big — fewer per side keeps 50% odds = ~half full
 };
-function capacityFor(sport) { return MAX_PER_SIDE[sport] || 100; }
+const MAX_PER_SIDE_MOBILE = {
+  basketball:  55,
+  soccer:      55,
+  crypto:     160,
+  oil:         30,
+};
+function capacityFor(sport) {
+  const tbl = (typeof IS_MOBILE !== 'undefined' && IS_MOBILE) ? MAX_PER_SIDE_MOBILE : MAX_PER_SIDE;
+  return tbl[sport] || 100;
+}
 
 const SPORT_FILTERS = [
   { tag: 'NBA', sport: 'basketball', label: 'NBA' },
@@ -270,8 +279,8 @@ const SPORT_FILTERS = [
 const canvas = document.getElementById('canvas');
 // Mobile detection — coarse pointer covers phones/tablets reliably, viewport width is a fallback
 const IS_MOBILE = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 820;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_MOBILE, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.25 : 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.75 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x050507, 1);
 renderer.shadowMap.enabled = true;
@@ -353,7 +362,7 @@ scene.environment = envRT.texture;
 // LOCKED CAMERA — 3 fixed angles, tweened
 const CAM_TARGET = new THREE.Vector3(0, BOX_H * 0.85, 0);
 // On portrait, frame from floor (y=0) up to the ceiling/tube tops, centered
-const CEILING_FRAME_Y = BOX_H + 0.4 + 14.0 + 0.1;  // matches CEILING_Y (recomputed for early use)
+const CEILING_FRAME_Y = BOX_H + 0.4 + 17.0 + 0.1;  // matches CEILING_Y (TUBE.height value)
 const CAM_TARGET_PORTRAIT = new THREE.Vector3(0, CEILING_FRAME_Y / 2, 0);
 function activeTarget() {
   return (window.innerWidth / window.innerHeight) < 1 ? CAM_TARGET_PORTRAIT : CAM_TARGET;
@@ -387,7 +396,7 @@ function fitCamera() {
   const baseDist = CAM_ANGLES[0].pos.length();
   if (isPortrait) {
     // Vertical fit: floor (y=0) at bottom of screen, ceiling/tube-tops at top
-    const halfH = (CEILING_FRAME_Y / 2) * 1.02;  // tiny breathing room
+    const halfH = (CEILING_FRAME_Y / 2) * 1.02;
     const fov = Math.min(62, 48 + (1 - aspect) * 22);
     camera.fov = fov;
     camera.aspect = aspect;
@@ -412,7 +421,7 @@ camToPos = CAM_ANGLES[0].pos.clone().multiplyScalar(camDistScale);
 // POSTPROCESSING
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.5, 0.9);
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.05, 0.5, 0.9);
 composer.addPass(bloom);
 
 // ─────────────────────────────────────────────────────────────────────
@@ -424,21 +433,21 @@ scene.add(boxGroup);
 // Glass material — ultra-clear, no tint, light catches the surface only
 // Ultra-clean glass — minimal reflection/clearcoat, just thin transmissive panes
 function glassMat() {
+  // Opacity-based glass — balls render directly through the pane (no transmission resampling = razor-sharp).
+  // Clearcoat + envmap reflections carry the "glass surface" cue.
   return new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     metalness: 0,
-    roughness: 0.02,
-    transmission: 1.0,
-    thickness: 0.12,
-    ior: 1.52,
-    attenuationDistance: 8,
-    attenuationColor: 0xeaf2ff,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
-    specularIntensity: 1.0,
+    roughness: 0,
+    transmission: 0,
+    opacity: 0.08,
     transparent: true,
+    depthWrite: false,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    specularIntensity: 1.6,
     side: THREE.DoubleSide,
-    envMapIntensity: 0.9,
+    envMapIntensity: 1.4,
   });
 }
 
@@ -492,7 +501,7 @@ function buildHalf(tintHex, xOffset) {
   // Soft diffuse top light — large RectAreaLight covering the box's top, pointing down.
   // Stronger now to compensate for the ceiling blocking ambient and to spread color across the pile.
   // Top spot — invisible source (no rectangle artifact on back wall), pure downward illumination
-  const topSpot = new THREE.SpotLight(0xfff4e0, 18, h * 3, Math.PI * 0.5, 0.95, 1.4);
+  const topSpot = new THREE.SpotLight(0xfff4e0, 7, h * 3, Math.PI * 0.5, 0.95, 1.4);
   topSpot.position.set(0, hy + 1.5, 0);
   topSpot.target.position.set(0, -hy, 0);
   g.add(topSpot);
@@ -503,8 +512,15 @@ function buildHalf(tintHex, xOffset) {
   backFill.target.position.set(0, 0, hz);
   g.add(backFill);
   g.add(backFill.target);
-  // Stubs so existing references don't crash
-  const colorLightA = null, colorLightB = null;
+  // RGB interior light — bathes the contents in the team color. Recolored per market in switchMarket.
+  const colorLight = new THREE.PointLight(0xffffff, 22, h * 2.2, 1.4);
+  colorLight.position.set(0, -hy * 0.55, 0);
+  g.add(colorLight);
+  // A second accent up top so the light wraps the upper half of the pile too
+  const colorAccent = new THREE.PointLight(0xffffff, 10, h * 1.4, 1.6);
+  colorAccent.position.set(0, hy * 0.55, 0);
+  g.add(colorAccent);
+  const colorLightA = colorLight, colorLightB = colorAccent;
 
   // 12 edges of the box
   // Bottom 4
@@ -534,7 +550,7 @@ function buildHalf(tintHex, xOffset) {
   right.position.set( hx, 0, 0); right.rotation.y = -Math.PI / 2; g.add(right);
 
   g.position.set(xOffset, h / 2, 0);
-  return { group: g, frameMat: fMat, glassMat: gMat, neonMat, ledMat, colorLightA, colorLightB };
+  return { group: g, frameMat: fMat, glassMat: gMat, neonMat, ledMat, colorLightA, colorLightB, topSpot, backFill };
 }
 
 const halfA = buildHalf(0x8ecae6, -BOX_W / 4);
@@ -542,10 +558,91 @@ const halfB = buildHalf(0xfb8500,  BOX_W / 4);
 boxGroup.add(halfA.group, halfB.group);
 
 // ─────────────────────────────────────────────────────────────────────
+// COUNTRY FLAGS — shown only on World Cup markets, mounted on the top-front corners of each box.
+// SVG flags from hampusborgos/country-flags via jsDelivr CDN.
+// ─────────────────────────────────────────────────────────────────────
+const COUNTRY_TO_ISO = {
+  'mexico':'mx','south africa':'za','france':'fr','argentina':'ar','brazil':'br','germany':'de','spain':'es',
+  'england':'gb-eng','united states':'us','usa':'us','canada':'ca','japan':'jp','south korea':'kr','korea':'kr',
+  'portugal':'pt','italy':'it','netherlands':'nl','belgium':'be','croatia':'hr','morocco':'ma','senegal':'sn',
+  'ghana':'gh','nigeria':'ng','egypt':'eg','saudi arabia':'sa','australia':'au','new zealand':'nz','iran':'ir',
+  'iraq':'iq','uruguay':'uy','colombia':'co','peru':'pe','ecuador':'ec','chile':'cl','paraguay':'py',
+  'switzerland':'ch','austria':'at','poland':'pl','sweden':'se','denmark':'dk','norway':'no','wales':'gb-wls',
+  'scotland':'gb-sct','northern ireland':'gb-nir','ireland':'ie','czech republic':'cz','czechia':'cz',
+  'turkey':'tr','greece':'gr','russia':'ru','ukraine':'ua','serbia':'rs','romania':'ro','hungary':'hu',
+  'bulgaria':'bg','china':'cn','india':'in','thailand':'th','vietnam':'vn','indonesia':'id','malaysia':'my',
+  'philippines':'ph','singapore':'sg','tunisia':'tn','algeria':'dz','cameroon':'cm','ivory coast':'ci',
+  'costa rica':'cr','honduras':'hn','panama':'pa','jamaica':'jm','qatar':'qa','united arab emirates':'ae',
+  'uae':'ae','venezuela':'ve','bolivia':'bo',
+};
+const countryIsoFor = (name) => COUNTRY_TO_ISO[(name || '').trim().toLowerCase()] || null;
+
+// Flag image cache — onReady fires ONCE per ISO (when the image first loads). Subsequent calls just return the cached image.
+const flagImageCache = new Map();   // iso -> HTMLImageElement
+function loadFlagImage(iso, onReady) {
+  if (!iso) return null;
+  const cached = flagImageCache.get(iso);
+  if (cached) return cached;        // never re-fires the callback (would cause re-entry into the scoreboard)
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { onReady?.(img); };
+  img.src = `https://cdn.jsdelivr.net/gh/hampusborgos/country-flags@main/svg/${iso}.svg`;
+  flagImageCache.set(iso, img);
+  return img;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ROOM-WALL TICKER — LED ribbon wrapping ALL 4 walls of the room.
+// Each wall has its own visible canvas (aspect-matched, no stretch). All walls blit a window of the
+// same master canvas with a per-wall perimeter offset, so the marquee scrolls continuously around the room.
+// ─────────────────────────────────────────────────────────────────────
+const tickerMeshes = [];
+{
+  const stripH = 3.5;                 // moderate height — readable from default cam
+  const yPos = 22;
+  const ROOM_BACK_Z = -16;
+  const ROOM_FRONT_Z = 16;
+  const ROOM_SIDE_X = 22;
+  const ROOM_WIDTH = 50;              // back/front wall length along X
+  const ROOM_DEPTH = 36;              // left/right wall length along Z
+
+  const placeholder = document.createElement('canvas');
+  placeholder.width = 32; placeholder.height = 32;
+
+  let perimeterCursor = 0;
+  const makeStrip = (length, x, z, rotY) => {
+    const tex = new THREE.CanvasTexture(placeholder);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, stripH), mat);
+    mesh.position.set(x, yPos, z);
+    mesh.rotation.y = rotY;
+    scene.add(mesh);
+    tickerMeshes.push({
+      mesh, mat, tex, width: length, height: stripH,
+      // Walking around the perimeter in this order: back → right → front → left
+      perimeterOffset: perimeterCursor,
+    });
+    perimeterCursor += length;
+    return mesh;
+  };
+  // Back (faces +Z toward camera)
+  makeStrip(ROOM_WIDTH, 0, ROOM_BACK_Z, 0);
+  // Right (faces -X)
+  makeStrip(ROOM_DEPTH,  ROOM_SIDE_X, 0, -Math.PI / 2);
+  // Front (faces -Z, visible from cam-2/cam-1 angles)
+  makeStrip(ROOM_WIDTH, 0, ROOM_FRONT_Z, Math.PI);
+  // Left (faces +X)
+  makeStrip(ROOM_DEPTH, -ROOM_SIDE_X, 0,  Math.PI / 2);
+  // Stash the perimeter total so the render loop can wrap consistently
+  for (const t of tickerMeshes) t._perimeterTotal = perimeterCursor;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // FUNNEL TUBES — Apple-glass refractive cylinders above each box
 // Balls spawn at the top and fall through them into the box (= smooth entry visual)
 // ─────────────────────────────────────────────────────────────────────
-const TUBE = { radius: 2.6, height: 14.0, segments: 48 };
+const TUBE = { radius: 2.6, height: 17.0, segments: 48 };
 const CEILING_Y = BOX_H + 0.4 + TUBE.height + 0.1;  // ceiling sits just above tube tops
 const TUBE_BOTTOM_Y = BOX_H + 0.4;
 const TUBE_TOP_Y = TUBE_BOTTOM_Y + TUBE.height;
@@ -557,23 +654,25 @@ function buildTube(xCenter) {
   // Visual cylinder — open-ended Apple-glass tube
   const geom = new THREE.CylinderGeometry(TUBE.radius, TUBE.radius, TUBE.height, TUBE.segments, 1, true);
   // Tube glass — transmissive with chromatic dispersion for the rainbow refraction effect
+  // Thicker, more opaque glass — still passes color/motion but reads more solid (less light bleed)
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
+    color: 0xc8d4e0,
     emissive: 0x000000,
-    emissiveIntensity: 0,
     metalness: 0,
-    roughness: 0.04,
-    transmission: 1.0,
-    thickness: 0.25,
-    ior: 1.5,
-    attenuationDistance: 6,
-    attenuationColor: 0xbfd1ff,  // very faint cool tint so transmitted blue neon stays blue
-    dispersion: 0.6,
+    roughness: 0.65,
+    transmission: 0.55,             // dial down transmission for more opacity
+    thickness: 1.8,
+    ior: 1.7,
+    attenuationDistance: 2,
+    attenuationColor: 0x9ab2cc,
+    dispersion: 1.8,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.05,
+    clearcoatRoughness: 0.08,
+    specularIntensity: 1.4,
     transparent: true,
+    opacity: 0.92,                  // explicit opacity boost
     side: THREE.DoubleSide,
-    envMapIntensity: 1.2,
+    envMapIntensity: 1.0,
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(xCenter, TUBE_CENTER_Y, 0);
@@ -609,8 +708,10 @@ function buildTube(xCenter) {
 
   // Physics: 24-segment polygonal wall. Extended ABOVE the ceiling by 3 units to catch
   // balls spawned over the ceiling and funnel them into the tube — prevents lateral escape.
-  const N = 24;
-  const colliderExtra = 3.0;
+  // 48 segments + 30% chord overlap + thicker walls → no gaps at the polygon corners for basketballs to squeeze through.
+  // Spheres roll into the V where two adjacent segments meet; we need them to overlap heavily.
+  const N = 48;
+  const colliderExtra = 5.0;
   const colliderHeight = TUBE.height + colliderExtra;
   const colliderCenterY = TUBE_CENTER_Y + colliderExtra / 2;
   for (let i = 0; i < N; i++) {
@@ -627,7 +728,7 @@ function buildTube(xCenter) {
         })())
     );
     world.createCollider(
-      RAPIER.ColliderDesc.cuboid(chord / 2 * 1.02, colliderHeight / 2, 0.08)
+      RAPIER.ColliderDesc.cuboid(chord / 2 * 1.30, colliderHeight / 2, 0.30)
         .setFriction(0.3).setRestitution(0.25),
       body
     );
@@ -688,27 +789,21 @@ scene.add(floor);
   fillBoth();
   ctx.globalCompositeOperation = 'source-over';
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 16;
-  const neonMat = new THREE.MeshBasicMaterial({
-    map: tex, transparent: true, depthWrite: false, toneMapped: false,
-  });
-  // Span the back wall above the boxes — wordmark sits in clear sky for full readability
-  const planeW = 42;
-  const planeH = planeW * (SVG_H / SVG_W);
-  const neonMesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), neonMat);
-  // Above the boxes, well behind, centered horizontally
-  neonMesh.position.set(0, BOX_H + planeH / 2 + 1.5, -16);
-  neonMesh.renderOrder = -1;
-  scene.add(neonMesh);
-
-  // Two blue point lights placed high near the ceiling — bright spots read as ceiling-mounted neon spill
-  for (const x of [-12, 12]) {
-    const l = new THREE.PointLight(NEON, 28, 36, 1.4);
-    l.position.set(x, CEILING_Y - 2.5, -12);
+  // Wordmark removed — replace with broad blue ambient spill (no visible focal point).
+  // Sharper decay + lower intensity = soft moody glow across walls, no hot bright dot.
+  window.__bluePoints = [];
+  for (const x of [-14, 14]) {
+    const l = new THREE.PointLight(NEON, 14, 50, 2.6);
+    l.position.set(x, CEILING_Y - 0.6, -18);
     scene.add(l);
+    window.__bluePoints.push(l);
   }
+  // Soft directional blue wash from above-behind for overall mood
+  const blueWash = new THREE.DirectionalLight(NEON, 0.35);
+  blueWash.position.set(0, CEILING_Y + 6, -30);
+  blueWash.target.position.set(0, 6, 0);
+  scene.add(blueWash); scene.add(blueWash.target);
+  window.__blueWash = blueWash;
 }
 
 // Big ghost text behind balls per side
@@ -837,62 +932,27 @@ function buildScoreboardCanvas() {
   return c;
 }
 
-// Render text as a true LED dot-matrix grid — each pixel is a discrete circular dot,
-// off-pixels show a dim grey dot so the grid stays visible (stadium-board look).
-function dotMatrixText(text, { fontSize = 200, color = '#00ff66', cell = 8, dotRadius = 3, weight = 800, offAlpha = 0.06, letterSpacing = '-0.06em' }) {
-  // Render the text into a temp canvas at native pixel sampling resolution
+// Render LED-board text using Google's "Doto" font (real typography that mimics dot-matrix).
+// Signature stays compatible with the previous dot-matrix renderer so all callers swap automatically.
+function dotMatrixText(text, { fontSize = 200, color = '#00ff66', weight = 800, letterSpacing = '0em' } = {}) {
+  // Weight 800 isn't defined for Doto — clamp to the closest available (400 / 700 / 900)
+  const w = weight >= 850 ? 900 : weight >= 600 ? 700 : 400;
+  const fontStr = `${w} ${fontSize}px "Doto", "JetBrains Mono", monospace`;
   const measure = document.createElement('canvas').getContext('2d');
-  measure.font = `${weight} ${fontSize}px "JetBrains Mono", monospace`;
+  measure.font = fontStr;
   if ('letterSpacing' in measure) measure.letterSpacing = letterSpacing;
   const textW = Math.ceil(measure.measureText(text).width);
-  const padX = 8;
-  const tw = textW + padX * 2;
-  const th = Math.ceil(fontSize * 1.1);
-  const temp = document.createElement('canvas');
-  temp.width = tw; temp.height = th;
-  const tctx = temp.getContext('2d');
-  tctx.font = measure.font;
-  if ('letterSpacing' in tctx) tctx.letterSpacing = letterSpacing;
-  tctx.fillStyle = '#fff';
-  tctx.textBaseline = 'middle';
-  tctx.textAlign = 'left';
-  tctx.fillText(text, padX, th / 2);
-  const data = tctx.getImageData(0, 0, tw, th).data;
-
-  // Quantize to dot grid
-  const cols = Math.floor(tw / cell);
-  const rows = Math.floor(th / cell);
+  const padX = 12;
   const out = document.createElement('canvas');
-  out.width = cols * cell;
-  out.height = rows * cell;
+  out.width = textW + padX * 2;
+  out.height = Math.ceil(fontSize * 1.05);
   const ctx = out.getContext('2d');
-
-  // Off-dot pass first (background grid)
-  ctx.fillStyle = `rgba(180, 200, 220, ${offAlpha})`;
-  for (let r = 0; r < rows; r++) {
-    for (let cIdx = 0; cIdx < cols; cIdx++) {
-      ctx.beginPath();
-      ctx.arc(cIdx * cell + cell/2, r * cell + cell/2, dotRadius * 0.85, 0, Math.PI*2);
-      ctx.fill();
-    }
-  }
-  // On-dot pass (sample the text alpha at each cell center)
+  ctx.font = fontStr;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = letterSpacing;
   ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = dotRadius * 1.4;
-  for (let r = 0; r < rows; r++) {
-    for (let cIdx = 0; cIdx < cols; cIdx++) {
-      const sx = Math.min(tw - 1, cIdx * cell + (cell >> 1));
-      const sy = Math.min(th - 1, r * cell + (cell >> 1));
-      const idx = (sy * tw + sx) * 4 + 3; // alpha channel
-      if (data[idx] > 110) {
-        ctx.beginPath();
-        ctx.arc(cIdx * cell + cell/2, r * cell + cell/2, dotRadius, 0, Math.PI*2);
-        ctx.fill();
-      }
-    }
-  }
-  ctx.shadowBlur = 0;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(text, padX, out.height / 2);
   return out;
 }
 
@@ -905,6 +965,23 @@ const TEAM_ABBR_NBA = {
   kings:'SAC', pelicans:'NOP', grizzlies:'MEM', jazz:'UTA', 'trail blazers':'POR',
   blazers:'POR', raptors:'TOR', pistons:'DET', wizards:'WAS', hornets:'CHA', nets:'BKN',
 };
+const TEAM_CITY_NBA = {
+  thunder:'OKLAHOMA CITY', knicks:'NEW YORK', spurs:'SAN ANTONIO', lakers:'LOS ANGELES',
+  warriors:'GOLDEN STATE', celtics:'BOSTON', nuggets:'DENVER', heat:'MIAMI', bucks:'MILWAUKEE',
+  mavericks:'DALLAS', sixers:'PHILADELPHIA', '76ers':'PHILADELPHIA', suns:'PHOENIX',
+  clippers:'LOS ANGELES', timberwolves:'MINNESOTA', wolves:'MINNESOTA', pacers:'INDIANA',
+  cavaliers:'CLEVELAND', cavs:'CLEVELAND', magic:'ORLANDO', hawks:'ATLANTA', bulls:'CHICAGO',
+  rockets:'HOUSTON', kings:'SACRAMENTO', pelicans:'NEW ORLEANS', grizzlies:'MEMPHIS',
+  jazz:'UTAH', 'trail blazers':'PORTLAND', blazers:'PORTLAND', raptors:'TORONTO',
+  pistons:'DETROIT', wizards:'WASHINGTON', hornets:'CHARLOTTE', nets:'BROOKLYN',
+};
+function cityForNBA(name) {
+  if (!name) return null;
+  const k = name.toLowerCase().trim();
+  if (TEAM_CITY_NBA[k]) return TEAM_CITY_NBA[k];
+  for (const key of Object.keys(TEAM_CITY_NBA)) if (k.includes(key)) return TEAM_CITY_NBA[key];
+  return null;
+}
 const COUNTRY_ABBR = {
   mexico:'MEX', 'south africa':'RSA', 'south korea':'KOR', 'korea republic':'KOR',
   czechia:'CZE', 'united states':'USA', usa:'USA', canada:'CAN',
@@ -961,6 +1038,7 @@ function paintScoreboard({ nameA, nameB, pctA, pctB, colorA, colorB, sub }) {
   const fgB = brightenIfDark(colorB);
   const m = state.market || {};
   const isCrypto = m.sport === 'crypto';
+  // Scoreboard keeps 3-letter abbreviation; city name lives in the ghost text behind the balls
   const labelA = isCrypto ? (nameA || 'UP').toUpperCase() : getAbbr(nameA);
   const labelB = isCrypto ? (nameB || 'DOWN').toUpperCase() : getAbbr(nameB);
   const labelFont = (labelA.length > 3 || labelB.length > 3) ? 180 : 220;
@@ -975,45 +1053,180 @@ function paintScoreboard({ nameA, nameB, pctA, pctB, colorA, colorB, sub }) {
   };
   const aStackH = aAbbrCv.height + aPctCv.height + 30;
   const aTop = H/2 - aStackH/2;
-  drawCenteredFit(aAbbrCv, cellW/2, aTop + aAbbrCv.height/2, cellW);
-  drawCenteredFit(aPctCv, cellW/2, aTop + aAbbrCv.height + 30 + aPctCv.height/2, cellW);
   const bStackH = bAbbrCv.height + bPctCv.height + 30;
   const bTop = H/2 - bStackH/2;
-  drawCenteredFit(bAbbrCv, 5*cellW/2, bTop + bAbbrCv.height/2, cellW);
+
+  // For World Cup: draw flag to the LEFT of the 3-letter abbreviation, inline on the same row
+  const isWC = m.isWorldCup;
+  const isoA = isWC ? countryIsoFor(nameA) : null;
+  const isoB = isWC ? countryIsoFor(nameB) : null;
+  const flagImgA = isoA ? loadFlagImage(isoA, () => updateScoreboard()) : null;
+  const flagImgB = isoB ? loadFlagImage(isoB, () => updateScoreboard()) : null;
+  const flagReady = (img) => img && img.complete && img.naturalWidth > 0;
+
+  const drawAbbrWithFlag = (abbrCv, flagImg, cellCx, y, maxW) => {
+    const baseS = Math.min(1, (maxW - 24) / abbrCv.width);
+    const abbrW = abbrCv.width * baseS;
+    const abbrH = abbrCv.height * baseS;
+    if (flagReady(flagImg)) {
+      const flagH = abbrH * 0.78;
+      const flagW = flagH * (flagImg.naturalWidth / flagImg.naturalHeight);
+      const gap = 14;
+      const totalW = flagW + gap + abbrW;
+      const startX = cellCx - totalW / 2;
+      ctx.drawImage(flagImg, startX, y - flagH / 2, flagW, flagH);
+      ctx.drawImage(abbrCv, startX + flagW + gap, y - abbrH / 2, abbrW, abbrH);
+    } else {
+      ctx.drawImage(abbrCv, cellCx - abbrW / 2, y - abbrH / 2, abbrW, abbrH);
+    }
+  };
+  drawAbbrWithFlag(aAbbrCv, flagImgA, cellW/2,    aTop + aAbbrCv.height/2, cellW);
+  drawCenteredFit(aPctCv, cellW/2,   aTop + aAbbrCv.height + 30 + aPctCv.height/2, cellW);
+  drawAbbrWithFlag(bAbbrCv, flagImgB, 5*cellW/2,  bTop + bAbbrCv.height/2, cellW);
   drawCenteredFit(bPctCv, 5*cellW/2, bTop + bAbbrCv.height + 30 + bPctCv.height/2, cellW);
 
-  // Middle cell — countdown / date
-  let topLine = '', bottomLine = '';
-  if (m.endDate) {
-    const end = new Date(m.endDate);
-    const ms = end.getTime() - Date.now();
-    if (m.isUpDown && ms > 0) {
-      const mm = Math.floor(ms / 60000);
-      const ss = Math.floor((ms % 60000) / 1000);
-      topLine = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-      bottomLine = 'RESOLVES';
-    } else if (ms > 24*3600*1000) {
-      topLine = end.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }).toUpperCase();
-      bottomLine = end.toLocaleString(undefined, { weekday: 'short' }).toUpperCase();
-    } else if (ms > 0) {
-      const hh = Math.floor(ms / 3600000);
-      const mm = Math.floor((ms % 3600000) / 60000);
-      topLine = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
-      bottomLine = 'TO TIPOFF';
-    } else {
-      topLine = 'LIVE'; bottomLine = 'NOW';
+  // Middle cell — for oil-strike markets show the full question wrapped over 3 lines;
+  // for everything else show countdown / date (existing behavior).
+  if (m.isOilStrike && m.question) {
+    const q = m.question.replace(/\?$/, '').trim();
+    ctx.save();
+    ctx.fillStyle = '#ffd66a';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    const words = q.split(/\s+/);
+    const greedyWrap = (limit) => {
+      const lines = [];
+      let cur = '';
+      for (const w of words) {
+        const trial = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(trial).width <= limit) cur = trial;
+        else { if (cur) lines.push(cur); cur = w; }
+      }
+      if (cur) lines.push(cur);
+      return lines;
+    };
+    let fontPx = 72, lines;
+    while (fontPx >= 32) {
+      ctx.font = `700 ${fontPx}px 'Space Grotesk', system-ui, sans-serif`;
+      lines = greedyWrap(cellW - 40);
+      const lineH = fontPx * 1.15;
+      if (lines.length * lineH <= H - 60) break;
+      fontPx -= 4;
     }
+    // text-wrap: balance — shrink the allowed line width until we get the same line count.
+    // Squeezing the limit redistributes words so no orphan straggles on the last line.
+    const targetLines = lines.length;
+    if (targetLines > 1) {
+      let lo = 60, hi = cellW - 40, best = lines;
+      while (lo < hi - 4) {
+        const mid = (lo + hi) / 2;
+        const trial = greedyWrap(mid);
+        if (trial.length <= targetLines) { best = trial; hi = mid; }
+        else lo = mid + 4;
+      }
+      lines = best;
+    }
+    const lineH = fontPx * 1.15;
+    let yStart = H/2 - (lines.length * lineH) / 2 + lineH / 2;
+    for (const line of lines) {
+      ctx.fillText(line, W/2, yStart);
+      yStart += lineH;
+    }
+    ctx.restore();
   } else {
-    topLine = (sub || 'VS').toUpperCase().slice(0, 8);
+    // BTC up/down: special middle cell — timer + live price + price-to-beat
+    if (m.isUpDown && state.btcPrice && state.btcStrike && m.endDate) {
+      const ms = new Date(m.endDate).getTime() - Date.now();
+      const mm = Math.max(0, Math.floor(ms / 60000));
+      const ss = Math.max(0, Math.floor((ms % 60000) / 1000));
+      const timer = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+      const fmt = (p) => '$' + Math.round(p).toLocaleString('en-US');
+      const displayPrice = state.displayBtcPrice ?? state.btcPrice;
+      const live = fmt(displayPrice);
+      const strike = fmt(state.btcStrike);
+      const up = displayPrice >= state.btcStrike;
+      ctx.save();
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      const midX = W/2;
+      // Stacked layout: TIMER → CURRENT PRICE → STRIKE, 8px vertical spacing between rows
+      const timerFont   = '900 86px "Doto", monospace';
+      const priceFont   = '900 120px "Doto", monospace';
+      const strikeFont  = '900 86px "Doto", monospace';
+      const arrowFont   = '900 70px "Doto", monospace';
+      const ROW_GAP     = 48;
+      const timerH  = 86;
+      const priceH  = 120;
+      const strikeH = 86;
+      const stackH  = timerH + ROW_GAP + priceH + ROW_GAP + strikeH;
+      const top     = H / 2 - stackH / 2;
+      const yTimer  = top + timerH / 2;
+      const yPrice  = top + timerH + ROW_GAP + priceH / 2;
+      const yStrike = top + timerH + ROW_GAP + priceH + ROW_GAP + strikeH / 2;
+
+      const priceColor = up ? '#22d672' : '#ff4466';   // BTC price takes the direction color
+
+      // Timer (white)
+      ctx.font = timerFont;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(timer, midX, yTimer);
+
+      // Live price: small colored arrow LEFT of the amount, both in the direction color
+      ctx.font = priceFont;
+      const liveW = ctx.measureText(live).width;
+      ctx.font = arrowFont;
+      const arrow = up ? '▲' : '▼';
+      const arrowW = ctx.measureText(arrow).width;
+      const gap = 18;
+      const totalW = arrowW + gap + liveW;
+      const startX = midX - totalW / 2;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = priceColor;
+      ctx.font = arrowFont;
+      ctx.fillText(arrow, startX, yPrice);
+      ctx.font = priceFont;
+      ctx.fillText(live, startX + arrowW + gap, yPrice);
+      ctx.textAlign = 'center';
+
+      // Strike (price to beat) — same size as timer, gray
+      ctx.font = strikeFont;
+      ctx.fillStyle = '#8a93a3';
+      ctx.fillText(strike, midX, yStrike);
+      ctx.restore();
+      if (scoreboardScreenMat?.map) scoreboardScreenMat.map.needsUpdate = true;
+      return;
+    }
+    let topLine = '', bottomLine = '';
+    if (m.endDate) {
+      const end = new Date(m.endDate);
+      const ms = end.getTime() - Date.now();
+      if (m.isUpDown && ms > 0) {
+        const mm = Math.floor(ms / 60000);
+        const ss = Math.floor((ms % 60000) / 1000);
+        topLine = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+        bottomLine = 'RESOLVES';
+      } else if (ms > 24*3600*1000) {
+        topLine = end.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }).toUpperCase();
+        bottomLine = end.toLocaleString(undefined, { weekday: 'short' }).toUpperCase();
+      } else if (ms > 0) {
+        const hh = Math.floor(ms / 3600000);
+        const mm = Math.floor((ms % 3600000) / 60000);
+        topLine = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+        bottomLine = 'TO TIPOFF';
+      } else {
+        topLine = 'LIVE'; bottomLine = 'NOW';
+      }
+    } else {
+      topLine = (sub || 'VS').toUpperCase().slice(0, 8);
+    }
+    const midTopOpts = { fontSize: 120, cell: 7, dotRadius: 2.6, weight: 800, color: '#ffffff' };
+    const midBotOpts = { fontSize: 56, cell: 4, dotRadius: 1.6, weight: 600, color: '#8a93a3' };
+    const midTopCv = dotMatrixText(topLine || ' ', midTopOpts);
+    const midBotCv = bottomLine ? dotMatrixText(bottomLine, midBotOpts) : null;
+    const midStackH = midTopCv.height + (midBotCv ? midBotCv.height + 22 : 0);
+    const midTop = H/2 - midStackH/2;
+    drawCenteredFit(midTopCv, W/2, midTop + midTopCv.height/2, cellW);
+    if (midBotCv) drawCenteredFit(midBotCv, W/2, midTop + midTopCv.height + 22 + midBotCv.height/2, cellW);
   }
-  const midTopOpts = { fontSize: 120, cell: 7, dotRadius: 2.6, weight: 800, color: '#ffffff' };
-  const midBotOpts = { fontSize: 56, cell: 4, dotRadius: 1.6, weight: 600, color: '#8a93a3' };
-  const midTopCv = dotMatrixText(topLine || ' ', midTopOpts);
-  const midBotCv = bottomLine ? dotMatrixText(bottomLine, midBotOpts) : null;
-  const midStackH = midTopCv.height + (midBotCv ? midBotCv.height + 22 : 0);
-  const midTop = H/2 - midStackH/2;
-  drawCenteredFit(midTopCv, W/2, midTop + midTopCv.height/2, cellW);
-  if (midBotCv) drawCenteredFit(midBotCv, W/2, midTop + midTopCv.height + 22 + midBotCv.height/2, cellW);
 
   if (scoreboardScreenMat?.map) scoreboardScreenMat.map.needsUpdate = true;
 }
@@ -1214,8 +1427,10 @@ const halfD = BOX_D / 2;
 const halfH = BOX_H / 2;
 // Slightly thicker physics walls (still inside visual frame) so fast spawns can't tunnel through them.
 const WT = 0.35;
-const WALL_HY = halfH + 0.6;   // wall extends above box-top to catch fly-outs from spawn
-const WALL_OFFSET_Y = WALL_HY; // center so the wall starts at y=0
+// Walls extend all the way up to the ceiling so balls bouncing off the tube bottom can't escape
+// over the rim. Invisible to renderer (no mesh), so no impact on lighting/glass look.
+const WALL_HY = (BOX_H + 0.4 + 14.0 + 0.1) / 2 + 0.2;  // half-height: floor to ceiling
+const WALL_OFFSET_Y = WALL_HY;                          // center so the wall starts at y=0
 
 // Left half walls
 staticBox(-BOX_W / 2,         WALL_OFFSET_Y, 0, WT, WALL_HY, halfD); // outer left
@@ -1228,67 +1443,107 @@ staticBox( BOX_W / 4,         WALL_OFFSET_Y, -halfD, halfW, WALL_HY, WT);
 // Center divider (between halves)
 staticBox(0, WALL_OFFSET_Y, 0, WT, WALL_HY, halfD);
 
-// Hard visible floor just below the box bottom — escaped balls bounce on it instead of disappearing
+// Catch-floor perimeter strips — outside the box footprint so escaped balls bounce on the floor,
+// but the area DIRECTLY under each box stays open as a black hole for trap-door drops.
 {
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.3, 0));
-  world.createCollider(
-    RAPIER.ColliderDesc.cuboid(80, 0.3, 60)
-      .setFriction(0.5).setRestitution(0.45),
-    body
-  );
+  const Y = -0.3;
+  const H = 0.3;
+  const safe = halfD + 0.1;          // box footprint along Z (halfD = BOX_D/2)
+  const safeX = BOX_W / 2 + 0.1;     // box footprint along X
+  const make = (cx, cy, cz, hx, hy, hz) => {
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(cx, cy, cz));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.5).setRestitution(0.4), body);
+  };
+  // North + south strips — full 80m wide, in front and behind the box
+  make(0, Y, -((safe) + 28), 80, H, 28);
+  make(0, Y,  ((safe) + 28), 80, H, 28);
+  // West + east strips — only spanning the box depth, on either side of the box footprint
+  make(-(safeX + 35), Y, 0, 35, H, safe);
+  make( (safeX + 35), Y, 0, 35, H, safe);
+}
+
+// Black hole visuals — dark abyss mesh under each box half, visible when the trap door opens
+{
+  const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false });
+  for (const xOff of [-BOX_W / 4, BOX_W / 4]) {
+    // Deep pit: a tall dark box from y=-0.5 down to y=-6
+    const pit = new THREE.Mesh(new THREE.BoxGeometry(BOX_W / 2 - 0.1, 5.5, BOX_D - 0.1), holeMat);
+    pit.position.set(xOff, -3.25, 0);
+    scene.add(pit);
+  }
 }
 
 // TRAPDOOR FLOORS — kinematic, hinged at outer edge
 // Each trapdoor is a slab the size of one half-floor
+// Realistic trap door — two brushed-chrome panels per side that retract along Z (north/south)
+// like elevator doors, exposing the open space underneath so balls drop straight out.
 class Trapdoor {
   constructor(side) {
-    // side: -1 left, +1 right
-    this.side = side;
-    this.cx = side * BOX_W / 4;   // center X of slab
-    this.hx = halfW;
-    this.hz = halfD;
-    this.y = 0;
-    this.angle = 0;
-    this.targetAngle = 0;
+    this.side = side;                  // -1 left, +1 right
+    this.cx = side * BOX_W / 4;        // center X of this side's floor
+    this.hx = halfW;                   // half-width of each panel along X (same as box half)
+    this.panelHz = halfD / 2;          // half-depth of EACH panel (two stack along Z to cover full depth)
+    this.thickness = 0.18;
+    this.openAmount = 0;               // 0 = closed, 1 = fully retracted
+    this.targetOpen = 0;
     this.openUntil = 0;
-    this.pivotX = side * (BOX_W / 2); // hinge at outer wall
-    this.body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.cx, this.y, 0)
+    this.maxSlide = halfD * 1.02;      // distance each panel slides outward along ±Z to fully clear the opening
+
+    // Panel A — north half (negative Z when closed, slides to more negative)
+    this.bodyN = world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.cx, 0, -this.panelHz)
     );
-    this.col = world.createCollider(
-      RAPIER.ColliderDesc.cuboid(this.hx, 0.1, this.hz).setFriction(0.6).setRestitution(0.2),
-      this.body
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(this.hx, this.thickness / 2, this.panelHz).setFriction(0.6).setRestitution(0.15),
+      this.bodyN
+    );
+    // Panel B — south half
+    this.bodyS = world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.cx, 0, this.panelHz)
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(this.hx, this.thickness / 2, this.panelHz).setFriction(0.6).setRestitution(0.15),
+      this.bodyS
     );
   }
-  open(durationMs = 700) {
-    this.targetAngle = this.side * Math.PI / 2.4; // swing down/outward
+  open(durationMs = 2500) {
+    this.targetOpen = 1;
     this.openUntil = performance.now() + durationMs;
   }
   update(dt) {
-    if (performance.now() > this.openUntil) this.targetAngle = 0;
-    // simple lerp
-    this.angle += (this.targetAngle - this.angle) * Math.min(1, dt * 6);
-    // Rotate around pivot at outer X: compute translation + rotation
-    // Slab center moves on an arc around pivotX
-    const r = Math.abs(this.cx - this.pivotX); // = halfW
-    const sgn = this.side;
-    const newX = this.pivotX - sgn * r * Math.cos(this.angle);
-    const newY = -r * Math.sin(Math.abs(this.angle));
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -this.angle * sgn);
-    this.body.setNextKinematicTranslation({ x: newX, y: newY, z: 0 });
-    this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
-    // Mirror visual
-    if (this.mesh) {
-      this.mesh.position.set(newX, newY, 0);
-      this.mesh.quaternion.copy(q);
+    if (performance.now() > this.openUntil) this.targetOpen = 0;
+    this.openAmount += (this.targetOpen - this.openAmount) * Math.min(1, dt * 2.0);
+    const slide = this.openAmount * this.maxSlide;
+    // Physics: move bodies along Z to open the hole
+    const zN = -this.panelHz - slide;
+    const zS =  this.panelHz + slide;
+    this.bodyN.setNextKinematicTranslation({ x: this.cx, y: 0, z: zN });
+    this.bodyS.setNextKinematicTranslation({ x: this.cx, y: 0, z: zS });
+    if (this.meshN && this.meshS) {
+      // Visual: keep meshes at their slot, but SHRINK Z scale so they retract into the side wall (masked, never poke out)
+      const scaleZ = Math.max(0.001, 1 - this.openAmount);
+      this.meshN.scale.z = scaleZ;
+      this.meshS.scale.z = scaleZ;
+      // Anchor so the shrinking edge is the one that meets the center (slot stays flush with the wall)
+      this.meshN.position.set(this.cx, 0, -this.panelHz * scaleZ);
+      this.meshS.position.set(this.cx, 0,  this.panelHz * scaleZ);
+      this.meshN.visible = scaleZ > 0.02;
+      this.meshS.visible = scaleZ > 0.02;
     }
   }
   attachVisual() {
-    const g = new THREE.BoxGeometry(this.hx * 2, 0.2, this.hz * 2);
-    const m = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.8, metalness: 0.2 });
-    this.mesh = new THREE.Mesh(g, m);
-    this.mesh.receiveShadow = true;
-    scene.add(this.mesh);
+    // Brushed chrome panels — match the box frame look
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xd8dde4, metalness: 1.0, roughness: 0.32, envMapIntensity: 1.1,
+    });
+    const g = new THREE.BoxGeometry(this.hx * 2, this.thickness, this.panelHz * 2);
+    this.meshN = new THREE.Mesh(g, mat);
+    this.meshS = new THREE.Mesh(g, mat);
+    this.meshN.receiveShadow = true; this.meshS.receiveShadow = true;
+    this.meshN.castShadow = true;    this.meshS.castShadow = true;
+    this.meshN.position.set(this.cx, 0, -this.panelHz);
+    this.meshS.position.set(this.cx, 0,  this.panelHz);
+    scene.add(this.meshN, this.meshS);
   }
 }
 const trapL = new Trapdoor(-1); trapL.attachVisual();
@@ -1491,10 +1746,14 @@ class Side {
     const rd = Math.random() * tubeInner * 0.7;
     const x = this.xCenter + Math.cos(a) * rd;
     const z = Math.sin(a) * rd;
-    // Spawn ABOVE the ceiling so the ball appears to fall through it — hidden until it enters the tube
-    const y = CEILING_Y + 1.0 + Math.random() * 0.6;
-    // Higher damping for flat/stackable shapes prevents the micro-jitter you see on resting coins/cans
-    const damp = (this.sport === 'crypto' || this.sport === 'oil')
+    // Spawn ABOVE the ceiling — hidden by the ceiling slab, falls through the tube hole into view.
+    // Avoids the "ball appearing from nothing inside the tube" pop.
+    const y = CEILING_Y + 1.5 + Math.random() * 1.0;
+    // Gold coins fall like dense metal — minimal air drag, mid angular damping to settle flat once stacked.
+    // Oil drums keep heavy damping because they're large stackable cylinders.
+    const damp = (this.sport === 'crypto')
+      ? { lin: 0.02, ang: 0.45 }
+      : (this.sport === 'oil')
       ? { lin: 0.45, ang: 0.85 }
       : { lin: 0.05, ang: 0.15 };
     const body = world.createRigidBody(
@@ -1503,7 +1762,9 @@ class Side {
         .setLinearDamping(damp.lin)
         .setAngularDamping(damp.ang)
         .setCanSleep(true)
-        // CCD disabled — too expensive at high body counts. Thicker walls + spawn margin prevent tunneling.
+        // CCD on for spheres (basketballs/soccer balls) — they're the ones that roll into polygon-corner
+        // gaps and tunnel out. Cylinders (coins, drums) stay flat against the wall and don't escape.
+        .setCcdEnabled(this.sport === 'basketball' || this.sport === 'soccer')
     );
     let colDesc;
     if (this.sport === 'football') {
@@ -1522,8 +1783,9 @@ class Side {
       colDesc = RAPIER.ColliderDesc.ball(BALL_R);
     }
     const friction = (this.sport === 'oil' || this.sport === 'crypto') ? 0.7 : 0.45;
-    const restitution = (this.sport === 'oil' || this.sport === 'crypto') ? 0.1 : 0.55;
-    colDesc.setRestitution(restitution).setFriction(friction).setDensity(1.2);
+    const restitution = (this.sport === 'oil') ? 0.1 : (this.sport === 'crypto') ? 0.18 : 0.55;
+    const density = (this.sport === 'crypto') ? 4.5 : 1.2;  // gold is ~19× water but Rapier mass scaling — 4.5 reads as "dense" without exploding piles
+    colDesc.setRestitution(restitution).setFriction(friction).setDensity(density);
     world.createCollider(colDesc, body);
     const mesh = makeBallMesh(this.sport, this.primary, this.secondary);
     mesh.position.set(x, y, z);
@@ -1592,8 +1854,13 @@ function parseArr(v) {
 
 // Heuristic: is this the moneyline market for a game?
 function isMoneyline(market, eventTitle) {
-  const q = (market.question || '').toLowerCase();
-  if (/spread|o\/u|over\/under|first|quarter|half|total|points|assists|rebounds|mvp|td|touchdown|sack/.test(q)) return false;
+  const q = (market.question || '').trim();
+  const t = (eventTitle || '').trim();
+  // The moneyline market's question equals the event title verbatim ("Spurs vs. Thunder").
+  // Side bets always carry a suffix ("Spurs vs. Thunder: Team to Score First", "Spurs vs. Thunder: Odd/Even").
+  if (t && q.toLowerCase() !== t.toLowerCase()) return false;
+  const ql = q.toLowerCase();
+  if (/spread|o\/u|over\/under|first|quarter|half|total|points|assists|rebounds|mvp|td|touchdown|sack/.test(ql)) return false;
   const outs = parseArr(market.outcomes).map(o => String(o).toLowerCase());
   if (outs.length !== 2) return false;
   if (outs.some(o => ['yes','no','over','under','draw'].includes(o))) return false;
@@ -1745,37 +2012,55 @@ const $statusText = { set textContent(_) {} }; // no-op shim
 function setHud() {}
 
 // Real Polymarket "X Up or Down" 5-min markets (auto-rotates every 5 min as new window opens)
-async function fetchUpDownLive(asset /* 'Bitcoin' | ... */) {
+async function fetchBtcSpot() {
   try {
-    const r = await fetch(`${GAMMA}/events?closed=false&active=true&tag_slug=up-or-down&limit=200`);
-    const arr = await r.json();
-    const now = Date.now();
-    // We want the LIVE moving market: prices off 50/50, soonest to resolve. Ignore future-pinned ones.
-    const candidates = arr
-      .filter(e => (e.title || '').toLowerCase().startsWith(asset.toLowerCase()))
-      .filter(e => e.endDate && new Date(e.endDate).getTime() > now)
-      .map(e => {
-        const m = (e.markets || [])[0];
-        const prices = m ? parseArr(m.outcomePrices).map(Number) : [];
-        const moving = prices.length === 2 && Math.abs(prices[0] - 0.5) > 0.005;
-        return { e, m, prices, moving, end: new Date(e.endDate).getTime() };
-      })
-      .filter(c => c.m && c.prices.length === 2 && c.moving);   // strict: only actually-moving events
-    candidates.sort((a, b) => a.end - b.end); // soonest moving first
-    const pick = candidates[0];
-    if (!pick) return null;
-    return {
-      id: pick.m.id,
-      eventId: pick.e.id,
-      eventTitle: pick.e.title,
-      sport: 'crypto',
-      tag: asset.slice(0, 3).toUpperCase(),
-      outcomes: parseArr(pick.m.outcomes),
-      prices: pick.prices,
-      endDate: pick.e.endDate,
-      asset,
-      isUpDown: true,
-    };
+    const r = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { cache: 'no-store' });
+    const j = await r.json();
+    const p = parseFloat(j?.data?.amount);
+    return Number.isFinite(p) ? p : null;
+  } catch { return null; }
+}
+
+async function fetchUpDownLive(asset /* 'Bitcoin' | ... */) {
+  // 5-minute up/down market. Slug pattern: `${prefix}-updown-5m-${unixWindowStart}`.
+  // windowStart snaps to the current 5-min boundary; ±300s fallbacks handle clock drift / not-yet-published rolls.
+  try {
+    const assetLower = asset.toLowerCase();
+    const prefix = assetLower === 'bitcoin' ? 'btc'
+                : assetLower === 'ethereum' ? 'eth'
+                : assetLower === 'solana' ? 'sol'
+                : assetLower.slice(0, 3);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const windowStart = Math.floor(nowSec / 300) * 300;
+    const candidates = [windowStart, windowStart - 300, windowStart + 300, windowStart - 600];
+    for (const ws of candidates) {
+      const slug = `${prefix}-updown-5m-${ws}`;
+      try {
+        // Cache-buster on each poll so Gamma never serves stale outcomePrices
+        const r = await fetch(`${GAMMA}/events?slug=${slug}&_=${Date.now()}`, { cache: 'no-store' });
+        const arr = await r.json();
+        const ev = Array.isArray(arr) ? arr[0] : null;
+        if (!ev) continue;
+        const m = (ev.markets || [])[0];
+        if (!m) continue;
+        const prices = parseArr(m.outcomePrices).map(Number);
+        if (prices.length !== 2) continue;
+        return {
+          id: m.id,
+          eventId: ev.id,
+          eventTitle: ev.title || `${asset} ⬆ vs ⬇ · 5m`,
+          sport: 'crypto',
+          tag: prefix.toUpperCase(),
+          outcomes: parseArr(m.outcomes),
+          prices,
+          endDate: ev.endDate,
+          asset,
+          isUpDown: true,
+          slug: ev.slug,
+        };
+      } catch {}
+    }
+    return null;
   } catch (e) { console.warn('updown fetch', e); return null; }
 }
 
@@ -1853,10 +2138,9 @@ async function fetchWorldCupLive() {
     const teamBName = titleMatch[2].trim();
     const tA = teamYes[teamAName], tB = teamYes[teamBName];
     if (!tA || !tB) return null;
-    // Normalize ignoring draw probability so the two-box represents win-conditional odds
-    const sum = tA.price + tB.price;
-    const pA = sum > 0 ? tA.price / sum : 0.5;
-    const pB = sum > 0 ? tB.price / sum : 0.5;
+    // Use RAW Polymarket prices so the bucket fill mirrors actual market odds (draw % stays out of the bucket)
+    const pA = tA.price;
+    const pB = tB.price;
     return {
       id: `wc-${ev.id}`,
       eventId: ev.id,
@@ -1901,12 +2185,14 @@ async function fetchCrudeOilLive() {
       .sort((a, b) => Math.abs(0.5 - a.prices[0]) - Math.abs(0.5 - b.prices[0]) || b.vol - a.vol);
     const pick = candidates[0];
     if (!pick) return null;
-    // Strip "Will Crude Oil (CL) hit " prefix for a cleaner title
-    const q = (pick.m.question || '').replace(/^Will Crude Oil \(CL\) hit\s*/i, 'CL ').replace(/\?$/, '');
+    // Cleaned title for the picker; full question retained for the scoreboard middle cell
+    const fullQ = pick.m.question || '';
+    const q = fullQ.replace(/^Will Crude Oil \(CL\) hit\s*/i, 'CL ').replace(/\?$/, '');
     return {
       id: pick.m.id,
       eventId: ev.id,
       eventTitle: q,
+      question: fullQ,
       sport: 'oil',
       tag: 'OIL',
       outcomes: pick.outcomes,
@@ -1929,7 +2215,7 @@ const oilMarketStub = {
 // Placeholder shown in the dropdown until first fetch resolves
 const btcMarketStub = {
   id: 'updown-btc',
-  eventTitle: 'BTC ⬆ vs ⬇ · Hourly (Polymarket)',
+  eventTitle: 'BTC ⬆ vs ⬇ · 5m (Polymarket)',
   sport: 'crypto',
   tag: 'BTC',
   outcomes: ['Up', 'Down'],
@@ -2022,9 +2308,8 @@ async function searchMatches(q) {
         }
         let market = null;
         if (teamYes[teamA] && teamYes[teamB]) {
-          const sum = teamYes[teamA].price + teamYes[teamB].price;
-          const pA = sum > 0 ? teamYes[teamA].price / sum : 0.5;
-          const pB = sum > 0 ? teamYes[teamB].price / sum : 0.5;
+          const pA = teamYes[teamA].price;
+          const pB = teamYes[teamB].price;
           market = {
             id: `${t.slug}-${e.id}`, eventId: e.id, eventTitle: e.title,
             sport: t.sport, tag: t.label,
@@ -2085,76 +2370,102 @@ function filterList(query) {
 // ── Ticker (embedded inside the scoreboard) — fetch related markets, render strip canvas, texture scrolls via UV offset
 async function refreshTicker(sport) {
   if (!tickerSourceCanvas) return;
-  const tagBySport = { soccer: 'soccer', basketball: 'nba', crypto: 'crypto', oil: 'sports' };
-  const tag = tagBySport[sport] || 'sports';
+  // Pull from Polymarket's "breaking-news" + top volume events for headline density
   try {
-    const url = `${GAMMA}/events?closed=false&active=true&tag_slug=${tag}&limit=80&order=volume24hr&ascending=false`;
-    const arr = await (await fetch(url)).json();
+    const [breaking, top] = await Promise.all([
+      fetch(`${GAMMA}/events?closed=false&active=true&tag_slug=breaking-news&limit=40&order=volume24hr&ascending=false`).then(r => r.json()),
+      fetch(`${GAMMA}/events?closed=false&active=true&limit=40&order=volume24hr&ascending=false`).then(r => r.json()),
+    ]);
+    // Merge unique events, breaking-news first
+    const seen = new Set();
+    const arr = [];
+    for (const e of [...breaking, ...top]) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      arr.push(e);
+    }
     const now = Date.now();
     const items = [];
     for (const e of arr) {
-      if (items.length >= 40) break;
-      const title = e.title || '';
-      if (!/\bvs\.?\b/i.test(title)) continue;
+      if (items.length >= 30) break;
+      const title = (e.title || '').trim();
+      if (!title) continue;
       if (e.endDate && new Date(e.endDate).getTime() < now) continue;
-      const titleMatch = title.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
-      if (!titleMatch) continue;
-      const teamA = titleMatch[1].trim();
-      const teamB = titleMatch[2].trim();
-      const teamYes = {};
+      // Pick the headline market — first 2-outcome market with valid prices
+      let pYes = null;
       for (const m of (e.markets || [])) {
-        const t = extractTeamFromWinQ(m.question || '');
-        if (!t) continue;
         const px = parseArr(m.outcomePrices).map(Number);
-        if (px.length === 2) teamYes[t] = px[0];
+        if (px.length === 2 && px[0] > 0.01 && px[0] < 0.99) { pYes = px[0]; break; }
       }
-      let pa = teamYes[teamA], pb = teamYes[teamB];
-      if (pa == null || pb == null) {
-        for (const m of (e.markets || [])) {
-          const outs = parseArr(m.outcomes);
-          const px = parseArr(m.outcomePrices).map(Number);
-          if (outs.length === 2 && px.length === 2) { pa = px[0]; pb = px[1]; break; }
-        }
-      }
-      if (pa == null || pb == null) continue;
-      const sum = pa + pb;
-      const pAn = sum > 0 ? pa/sum : 0.5;
-      const pBn = sum > 0 ? pb/sum : 0.5;
-      items.push({ teamA, teamB, pA: pAn, pB: pBn });
+      if (pYes == null) continue;
+      items.push({ title, pYes });
     }
     paintTickerStrip(items);
   } catch (e) { console.warn('ticker', e); }
 }
 
+// Master ticker strip — wide off-screen canvas containing every "breaking" event.
+// Each wall plane has its own visible canvas (matching its aspect ratio) and blits a sliding window
+// of the master each frame with a per-wall pixel offset, so the marquee wraps continuously around the room.
+let tickerMasterCanvas = null;
 function paintTickerStrip(items) {
-  if (!tickerSourceCanvas || !items.length) return;
-  // Bigger logical pixels in the strip → bigger on-screen text + better aspect ratio
-  const ITEM_W = 900;
-  const stripH = 200;
-  const targetW = Math.max(1, items.length) * ITEM_W;
-  if (tickerSourceCanvas.width !== targetW) tickerSourceCanvas.width = targetW;
-  tickerSourceCanvas.height = stripH;
-  const c = tickerSourceCanvas;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#040608';
-  ctx.fillRect(0, 0, c.width, stripH);
-  const itemOpts = { fontSize: 110, cell: 9, dotRadius: 3.6, weight: 700, color: '#e8eef6', offAlpha: 0.05 };
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const x = i * ITEM_W;
-    const txt = `${it.teamA.slice(0, 12).toUpperCase()} ${Math.round(it.pA*100)}%  ·  ${it.teamB.slice(0, 12).toUpperCase()} ${Math.round(it.pB*100)}%`;
-    const cv = dotMatrixText(txt, itemOpts);
-    const maxW = ITEM_W - 60;
-    const s = Math.min(1, maxW / cv.width);
-    ctx.drawImage(cv, x + 30, stripH/2 - (cv.height*s)/2, cv.width*s, cv.height*s);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillRect(x + ITEM_W - 4, 40, 2, stripH - 80);
+  if (!items.length || !tickerMeshes.length) return;
+  const stripH = 220;
+  const PAD_X = 48;
+  const FONT = `900 160px "Doto", "JetBrains Mono", monospace`;
+  const PCT_FONT = `900 180px "Doto", "JetBrains Mono", monospace`;
+
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const itemSpecs = items.map(it => {
+    const title = it.title.toUpperCase();
+    const pct = `${Math.round(it.pYes * 100)}%`;
+    measureCtx.font = FONT;
+    const tW = measureCtx.measureText(title).width;
+    measureCtx.font = PCT_FONT;
+    const pW = measureCtx.measureText(pct).width;
+    return { title, pct, tW, pW, total: tW + 24 + pW + PAD_X * 2 };
+  });
+  const totalW = itemSpecs.reduce((s, x) => s + x.total, 0);
+
+  tickerMasterCanvas = document.createElement('canvas');
+  tickerMasterCanvas.width = Math.max(1, totalW);
+  tickerMasterCanvas.height = stripH;
+  const mctx = tickerMasterCanvas.getContext('2d');
+  mctx.fillStyle = '#040608';
+  mctx.fillRect(0, 0, tickerMasterCanvas.width, stripH);
+  mctx.textBaseline = 'middle';
+
+  let x = 0;
+  for (const sp of itemSpecs) {
+    const cy = stripH / 2;
+    let cx = x + PAD_X;
+    mctx.font = FONT;
+    mctx.fillStyle = '#e8eef6';
+    mctx.fillText(sp.title, cx, cy);
+    cx += sp.tW + 24;
+    mctx.font = PCT_FONT;
+    // Green if pYes >= 0.5 (favored), red otherwise
+    mctx.fillStyle = sp.title.includes('NO ') ? '#ff4466' : '#22d672';
+    mctx.fillText(sp.pct, cx, cy);
+    x += sp.total;
+    mctx.fillStyle = 'rgba(255,255,255,0.10)';
+    mctx.fillRect(x - 2, 30, 2, stripH - 60);
   }
-  tickerStripWidth = c.width;
-  tickerStripHeight = c.height;
-  if (tickerTex) {
-    tickerTex.needsUpdate = true;
-    tickerTex.repeat.x = tickerPlaneAspect / (tickerStripWidth / tickerStripHeight);
+
+  // Each wall gets its own visible canvas matching its plane aspect (so text never stretches)
+  for (const t of tickerMeshes) {
+    if (!t.visibleCanvas) {
+      t.visibleCanvas = document.createElement('canvas');
+      const aspect = t.width / t.height;
+      t.visibleCanvas.height = stripH;
+      t.visibleCanvas.width = Math.round(stripH * aspect);
+      const newTex = new THREE.CanvasTexture(t.visibleCanvas);
+      newTex.colorSpace = THREE.SRGBColorSpace;
+      newTex.needsUpdate = true;
+      t.mat.map = newTex;
+      t.mat.needsUpdate = true;
+      t.tex = newTex;
+    }
   }
 }
 
@@ -2227,6 +2538,10 @@ async function loadMarkets() {
 async function switchMarket(market) {
   state.market = market;
   state.marketId = market.id;
+  // For BTC up/down: snapshot the live price as the "price to beat" on first entry into this window
+  if (market.isUpDown && market.asset === 'Bitcoin') {
+    fetchBtcSpot().then(p => { if (p) { state.btcStrike = p; if (!state.btcPrice) state.btcPrice = p; updateScoreboard(); } });
+  }
   const [pA, pB] = market.prices;
   state.oddsA = pA; state.oddsB = pB;
   // Seed the odometer at ~40% of the final number so it spins up from "already-filling" rather than 0
@@ -2261,17 +2576,49 @@ async function switchMarket(market) {
 
   // Color delivered by the top neon strip + its downward spotlight — frame stays chrome
   // Team identity = a subtle emissive tint on the chrome frame (anodized look). No interior color lights.
-  halfA.frameMat.emissive.set(hexToInt(pAColor));
-  halfA.frameMat.emissiveIntensity = 0.35;
-  halfB.frameMat.emissive.set(hexToInt(pBColor));
-  halfB.frameMat.emissiveIntensity = 0.35;
-  refreshTicker(market.sport);
+  // Frame stays pure chrome — color identity now comes from the interior RGB lights
+  halfA.frameMat.emissiveIntensity = 0;
+  halfB.frameMat.emissiveIntensity = 0;
+  const lightColor = (hex) => {
+    const c = new THREE.Color(hex);
+    const hsl = {h:0,s:0,l:0}; c.getHSL(hsl);
+    // Lock saturation high and clamp lightness 0.45–0.55 so neither side dominates with raw white
+    return new THREE.Color().setHSL(hsl.h, Math.max(hsl.s, 0.85), Math.min(0.55, Math.max(hsl.l, 0.45)));
+  };
+  // Perceived-luminance scale — blue/red colors deliver less raw brightness than white/yellow,
+  // so we boost dim colors and damp bright ones to keep both sides equally lit visually.
+  const lumaScale = (c) => {
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    // target perceived lum 0.45 → scale = 0.45/lum, clamped so we don't over-shoot
+    return Math.max(0.6, Math.min(2.4, 0.45 / Math.max(0.08, lum)));
+  };
+  const cA = lightColor(pAColor), cB = lightColor(pBColor);
+  const kA = lumaScale(cA), kB = lumaScale(cB);
+  const BASE_MAIN = 22, BASE_ACCENT = 10;
+  if (halfA.colorLightA) { halfA.colorLightA.color.copy(cA); halfA.colorLightA.intensity = BASE_MAIN  * kA; }
+  if (halfA.colorLightB) { halfA.colorLightB.color.copy(cA); halfA.colorLightB.intensity = BASE_ACCENT * kA; }
+  if (halfB.colorLightA) { halfB.colorLightA.color.copy(cB); halfB.colorLightA.intensity = BASE_MAIN  * kB; }
+  if (halfB.colorLightB) { halfB.colorLightB.color.copy(cB); halfB.colorLightB.intensity = BASE_ACCENT * kB; }
+  if (!window.__tickerStarted) {
+    window.__tickerStarted = true;
+    refreshTicker();
+    setInterval(() => refreshTicker(), 60000);  // breaking refresh every 60s; ticker is global across markets
+  }
   // Stash colors for scoreboard reuse on poll updates
   state.colorA = typeof pAColor === 'string' ? pAColor : `#${pAColor.toString(16).padStart(6,'0')}`;
   state.colorB = typeof pBColor === 'string' ? pBColor : `#${pBColor.toString(16).padStart(6,'0')}`;
   updateScoreboard();
 
-  setGhostText(market.outcomes[0], market.outcomes[1], hexToInt(pAColor), hexToInt(pBColor));
+  // Ghost text behind the balls uses city name for NBA, raw team name otherwise
+  const ghostA = market.sport === 'basketball' ? (cityForNBA(market.outcomes[0]) || market.outcomes[0]) : market.outcomes[0];
+  const ghostB = market.sport === 'basketball' ? (cityForNBA(market.outcomes[1]) || market.outcomes[1]) : market.outcomes[1];
+  setGhostText(ghostA, ghostB, hexToInt(pAColor), hexToInt(pBColor));
+  // Country flags only on World Cup markets
+  if (market.isWorldCup) {
+    // Preload flags so they're cached by the time the scoreboard paints
+    loadFlagImage(countryIsoFor(market.outcomes[0]), updateScoreboard);
+    loadFlagImage(countryIsoFor(market.outcomes[1]), updateScoreboard);
+  }
   setHud(market, pA, pB, 0, 0);
 
   // Initial fill — pre-seed 40% then cascade the rest
@@ -2350,8 +2697,7 @@ async function pollOdds() {
         else if (t === teamBName) pb = px[0];
       }
       if (pa == null || pb == null) return;
-      const sum = pa + pb;
-      prices = sum > 0 ? [pa/sum, pb/sum] : [0.5, 0.5];
+      prices = [pa, pb];  // raw — bucket fill reflects actual market %
     } catch { return; }
   } else {
     prices = await fetchMarketOdds(state.marketId);
@@ -2382,6 +2728,33 @@ async function pollOdds() {
 }
 // Independent 5s churn timer — runs only when a BTC market is active
 setInterval(() => { if (state.market?.isUpDown) churnBtc(); }, 5000);
+// Live BTC spot poll — drives the live price + up/down color on the scoreboard
+setInterval(async () => {
+  if (!state.market?.isUpDown || state.market.asset !== 'Bitcoin') return;
+  const p = await fetchBtcSpot();
+  if (p) {
+    state.btcPrice = p;
+    if (!state.btcStrike) state.btcStrike = p;
+    // Roll the displayed price toward the live price using GSAP (same odometer feel as the % numbers)
+    if (typeof gsap !== 'undefined') {
+      if (state.displayBtcPrice == null) state.displayBtcPrice = p;
+      if (state._btcTween) state._btcTween.kill();
+      const fromP = state.displayBtcPrice;
+      const obj = { t: 0 };
+      state._btcTween = gsap.to(obj, {
+        t: 1, duration: 1.2, ease: 'power2.out',
+        onUpdate() {
+          state.displayBtcPrice = fromP + (p - fromP) * obj.t;
+          updateScoreboard();
+        },
+        onComplete() { state._btcTween = null; },
+      });
+    } else {
+      state.displayBtcPrice = p;
+      updateScoreboard();
+    }
+  }
+}, 3000);
 
 // Cycle coins on each side: drop new ones in from above, silently retire the oldest already at rest.
 // Doesn't touch the trapdoor (which drains the whole pile via gravity).
@@ -2419,23 +2792,30 @@ function applyDelta(side, trap, delta) {
       side.spawnBall(); added++;
     }, 80);
   } else if (delta < 0) {
-    trap.open(900);
-    // Balls fall out via gravity; cleanupFallen() removes them
-    // But we also need to bound: kill the lowest N balls by giving them y-velocity if floor doesn't reach
-    // The trapdoor opening alone may not drop exactly |delta| balls — for v1 we accept that gravity drops "some" and we re-sync next tick
-    // To be precise: pick |delta| balls and unghost them = lift very slightly to let them slide out, then on next tick the count corrects via additional removals
-    // Simplest: after trapdoor opens, count current balls; if still > target after 1.5s, force-remove extras
+    // Open long enough for gravity to actually drop the balls
+    trap.open(2500);
+    // Pre-select the LOWEST |delta| balls and nudge them so they're the ones that fall through.
+    // Then after the trap cycle, remove EXACTLY |delta| balls — no over/under drop.
+    const drop = Math.min(side.balls.length, -delta);
+    const sorted = [...side.balls].sort((a, b) => a.body.translation().y - b.body.translation().y);
+    const fallen = sorted.slice(0, drop);
+    // Small downward impulse on the chosen balls so they're the first to find the hole
+    for (const b of fallen) {
+      try { b.body.applyImpulse({ x: 0, y: -3, z: 0 }, true); } catch {}
+    }
     setTimeout(() => {
-      const target = side === sideA ? state.lastA + delta : state.lastB + delta; // delta is negative
-      while (side.balls.length > target) {
-        const b = side.balls.pop();
-        scene.remove(b.mesh);
-        disposeBallMesh(b.mesh);
-        world.removeRigidBody(b.body);
+      // Remove exactly the pre-selected fallen balls
+      const fallenSet = new Set(fallen);
+      for (let i = side.balls.length - 1; i >= 0; i--) {
+        if (fallenSet.has(side.balls[i])) {
+          const b = side.balls[i];
+          scene.remove(b.mesh);
+          disposeBallMesh(b.mesh);
+          world.removeRigidBody(b.body);
+          side.balls.splice(i, 1);
+        }
       }
-      // If not enough on the field (e.g., still rolling down), spawn back to target as a safety
-      while (side.balls.length < target) side.spawnBall();
-    }, 1400);
+    }, 2400);
   }
 }
 
@@ -2468,15 +2848,42 @@ function loop() {
     }
     side.cleanupFallen();
   }
-  // Camera tween (locked angles)
-  if (camTweenT < 1) {
-    camTweenT = Math.min(1, camTweenT + dt * 1.6);
-    const e = camTweenT < 0.5 ? 2 * camTweenT * camTweenT : 1 - Math.pow(-2 * camTweenT + 2, 2) / 2;
-    camera.position.lerpVectors(camFromPos, camToPos, e);
+  // Camera tween (locked angles) — skipped when OrbitControls is driving
+  if (!window.__orbit) {
+    if (camTweenT < 1) {
+      camTweenT = Math.min(1, camTweenT + dt * 1.6);
+      const e = camTweenT < 0.5 ? 2 * camTweenT * camTweenT : 1 - Math.pow(-2 * camTweenT + 2, 2) / 2;
+      camera.position.lerpVectors(camFromPos, camToPos, e);
+    }
+    camera.lookAt(activeTarget());
   }
-  camera.lookAt(activeTarget());
-  // Ticker scroll via UV offset — cheap, no GPU re-upload
-  if (tickerTex) tickerTex.offset.x = (performance.now() * 0.00006) % 1;
+  // Ticker scroll — each wall blits its own slice of the master canvas at a perimeter offset.
+  // The marquee wraps continuously around the room (back → right → front → left).
+  if (tickerMasterCanvas && tickerMeshes.length && tickerMeshes[0].visibleCanvas) {
+    const src = tickerMasterCanvas;
+    const speedWorldPerSec = 5.5;    // slow enough to read
+    const perimeter = tickerMeshes[0]._perimeterTotal || 1;
+    // Convert master canvas pixels per world unit so wall lengths map cleanly
+    const pxPerWorld = src.width / perimeter;
+    const globalOffset = (performance.now() * speedWorldPerSec / 1000) % perimeter;
+    for (const tk of tickerMeshes) {
+      const dst = tk.visibleCanvas;
+      const dctx = dst.getContext('2d');
+      const startPx = ((globalOffset + tk.perimeterOffset) * pxPerWorld) % src.width;
+      const sliceW = tk.width * pxPerWorld;
+      dctx.fillStyle = '#040608';
+      dctx.fillRect(0, 0, dst.width, dst.height);
+      if (startPx + sliceW <= src.width) {
+        dctx.drawImage(src, startPx, 0, sliceW, src.height, 0, 0, dst.width, dst.height);
+      } else {
+        const first = src.width - startPx;
+        const firstDst = (first / sliceW) * dst.width;
+        dctx.drawImage(src, startPx, 0, first, src.height, 0, 0, firstDst, dst.height);
+        dctx.drawImage(src, 0, 0, sliceW - first, src.height, firstDst, 0, dst.width - firstDst, dst.height);
+      }
+      if (tk.tex) tk.tex.needsUpdate = true;
+    }
+  }
   composer.render();
   requestAnimationFrame(loop);
 }
@@ -2628,12 +3035,178 @@ setInterval(() => { updateScoreboard(); }, 1000);
 // Tighter polling for BTC (more lively), slower for sports markets
 let lastPoll = 0;
 setInterval(() => {
-  const interval = state.market?.isUpDown ? 1500 : POLL_MS;
+  const interval = state.market?.isUpDown ? 1000 : POLL_MS;
   if (performance.now() - lastPoll >= interval) {
     lastPoll = performance.now();
     pollOdds();
   }
 }, 1000);
+
+// ─────────────────────────────────────────────────────────────────────
+// DEBUG CONTROL PANEL — toggle via ?control in the URL
+// Lets you tune every light, glass param, RGB intensity, and enable
+// free pan/spin via OrbitControls. Hidden in production.
+// ─────────────────────────────────────────────────────────────────────
+if (new URLSearchParams(location.search).has('control')) {
+  const css = `
+    #ctrl { position: fixed; top: 0; right: 0; width: 320px; height: 100dvh; z-index: 50;
+      background: rgba(8,8,12,0.92); backdrop-filter: blur(14px); color: #eee;
+      font: 11px/1.4 'JetBrains Mono', monospace; padding: 12px; overflow-y: auto;
+      border-left: 1px solid rgba(255,255,255,0.08); box-shadow: -8px 0 24px rgba(0,0,0,0.4); }
+    #ctrl h3 { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: #888;
+      margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    #ctrl h3:first-of-type { margin-top: 0; }
+    #ctrl .ctrl-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    #ctrl .ctrl-name { flex: 1; color: #bbb; cursor: pointer; user-select: none; transition: color 0.18s; }
+    #ctrl .ctrl-name:hover { color: #fff; }
+    #ctrl .ctrl-name.flash { color: #2962ff !important; }
+    #ctrl .ctrl-row > span.val { color: #fff; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+    #ctrl input[type=range] { flex: 2; height: 16px; accent-color: #2962ff; }
+    #ctrl input[type=checkbox] { accent-color: #2962ff; }
+    #ctrl button { background: #1a1f2e; color: #eee; border: 1px solid rgba(255,255,255,0.15);
+      padding: 6px 10px; border-radius: 4px; font: inherit; cursor: pointer; width: 100%; margin-top: 6px; }
+    #ctrl button:hover { background: #242a3d; }
+    #ctrl .row { display: flex; gap: 6px; }
+    #ctrl .row > button { flex: 1; }
+  `;
+  const styleEl = document.createElement('style'); styleEl.textContent = css; document.head.appendChild(styleEl);
+  const panel = document.createElement('div'); panel.id = 'ctrl';
+  document.body.appendChild(panel);
+
+  const slider = (label, min, max, step, get, set) => {
+    const defaultVal = get();
+    const fmt = (v) => Number(v).toFixed(step < 0.1 ? 2 : (step < 1 ? 1 : 0));
+    const wrap = document.createElement('div'); wrap.className = 'ctrl-row';
+    const name = document.createElement('span'); name.className = 'ctrl-name'; name.textContent = label;
+    name.title = `Double-click to reset → ${fmt(defaultVal)}`;
+    const val = document.createElement('span'); val.className = 'val';
+    const range = document.createElement('input'); range.type = 'range';
+    range.min = min; range.max = max; range.step = step; range.value = defaultVal;
+    val.textContent = fmt(defaultVal);
+    range.oninput = () => { set(parseFloat(range.value)); val.textContent = fmt(range.value); };
+    const reset = () => { range.value = defaultVal; set(defaultVal); val.textContent = fmt(defaultVal); name.classList.add('flash'); setTimeout(() => name.classList.remove('flash'), 350); };
+    let _lastTap = 0;
+    const tapHandler = (e) => {
+      const now = performance.now();
+      if (now - _lastTap < 600) { e.preventDefault(); e.stopPropagation(); reset(); _lastTap = 0; }
+      else { _lastTap = now; }
+    };
+    name.addEventListener('pointerup', tapHandler);
+    name.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); reset(); });
+    wrap.appendChild(name); wrap.appendChild(range); wrap.appendChild(val);
+    panel.appendChild(wrap);
+  };
+  const toggle = (label, get, set) => {
+    const defaultVal = get();
+    const wrap = document.createElement('div'); wrap.className = 'ctrl-row';
+    const name = document.createElement('span'); name.className = 'ctrl-name'; name.textContent = label;
+    name.title = `Double-click to reset → ${defaultVal ? 'on' : 'off'}`;
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = defaultVal;
+    cb.onchange = () => set(cb.checked);
+    const reset = () => { cb.checked = defaultVal; set(defaultVal); name.classList.add('flash'); setTimeout(() => name.classList.remove('flash'), 350); };
+    let _lastTap = 0;
+    const tapHandler = (e) => {
+      const now = performance.now();
+      if (now - _lastTap < 600) { e.preventDefault(); e.stopPropagation(); reset(); _lastTap = 0; }
+      else { _lastTap = now; }
+    };
+    name.addEventListener('pointerup', tapHandler);
+    name.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); reset(); });
+    wrap.appendChild(name); wrap.appendChild(cb);
+    panel.appendChild(wrap);
+  };
+  const heading = (txt) => { const h = document.createElement('h3'); h.textContent = txt; panel.appendChild(h); };
+  const button = (txt, fn) => { const b = document.createElement('button'); b.textContent = txt; b.onclick = fn; panel.appendChild(b); };
+
+  // ── GLASS
+  heading('Glass');
+  const allGlass = [halfA.glassMat, halfB.glassMat];
+  slider('Opacity',          0, 1,   0.01, () => halfA.glassMat.opacity,            v => allGlass.forEach(m => m.opacity = v));
+  slider('Clearcoat',        0, 1,   0.01, () => halfA.glassMat.clearcoat,          v => allGlass.forEach(m => m.clearcoat = v));
+  slider('Coat roughness',   0, 0.3, 0.01, () => halfA.glassMat.clearcoatRoughness, v => allGlass.forEach(m => m.clearcoatRoughness = v));
+  slider('Specular',         0, 3,   0.05, () => halfA.glassMat.specularIntensity,  v => allGlass.forEach(m => m.specularIntensity = v));
+  slider('EnvMap',           0, 3,   0.05, () => halfA.glassMat.envMapIntensity,    v => allGlass.forEach(m => m.envMapIntensity = v));
+
+  // ── RGB INTERIOR
+  heading('RGB Interior — Side A');
+  slider('Main',   0, 60, 0.5, () => halfA.colorLightA.intensity, v => halfA.colorLightA.intensity = v);
+  slider('Accent', 0, 40, 0.5, () => halfA.colorLightB.intensity, v => halfA.colorLightB.intensity = v);
+  heading('RGB Interior — Side B');
+  slider('Main',   0, 60, 0.5, () => halfB.colorLightA.intensity, v => halfB.colorLightA.intensity = v);
+  slider('Accent', 0, 40, 0.5, () => halfB.colorLightB.intensity, v => halfB.colorLightB.intensity = v);
+
+  // ── BOX WHITE LIGHTS
+  heading('Box Lights');
+  slider('Top spot A',  0, 30, 0.5, () => halfA.topSpot.intensity,  v => halfA.topSpot.intensity = v);
+  slider('Top spot B',  0, 30, 0.5, () => halfB.topSpot.intensity,  v => halfB.topSpot.intensity = v);
+  slider('Back fill A', 0, 3,  0.05, () => halfA.backFill.intensity, v => halfA.backFill.intensity = v);
+  slider('Back fill B', 0, 3,  0.05, () => halfB.backFill.intensity, v => halfB.backFill.intensity = v);
+
+  // ── EDGE / GLARE LIGHTS
+  heading('Edge & Glare');
+  slider('Front glare',  0, 20, 0.1, () => frontGlare.intensity,  v => frontGlare.intensity = v);
+  slider('Side glare L', 0, 20, 0.1, () => sideGlareL.intensity,  v => sideGlareL.intensity = v);
+  slider('Side glare R', 0, 20, 0.1, () => sideGlareR.intensity,  v => sideGlareR.intensity = v);
+  slider('Key light',    0, 5,  0.05, () => keyLight.intensity,    v => keyLight.intensity = v);
+  toggle('Animate front sweep', () => window.__sweepOn !== false, v => window.__sweepOn = v);
+
+  // ── BACKGROUND NEON
+  heading('Background Neon');
+  if (window.__bluePoints) {
+    slider('Blue points', 0, 60, 0.5, () => window.__bluePoints[0].intensity, v => window.__bluePoints.forEach(l => l.intensity = v));
+  }
+  if (window.__blueWash) {
+    slider('Blue wash', 0, 2, 0.05, () => window.__blueWash.intensity, v => window.__blueWash.intensity = v);
+  }
+  toggle('Ghost text', () => textGroup.visible, v => textGroup.visible = v);
+
+  // ── BLOOM
+  heading('Post-Processing');
+  slider('Bloom strength', 0, 2,  0.05, () => bloom.strength,  v => bloom.strength = v);
+  slider('Bloom radius',   0, 2,  0.05, () => bloom.radius,    v => bloom.radius = v);
+  slider('Bloom threshold',0, 1,  0.01, () => bloom.threshold, v => bloom.threshold = v);
+
+  // ── CAMERA
+  heading('Camera');
+  let orbit = null;
+  toggle('Free pan/spin (OrbitControls)', () => !!orbit, v => {
+    if (v && !orbit) {
+      orbit = new OrbitControls(camera, renderer.domElement);
+      orbit.enableDamping = true;
+      orbit.dampingFactor = 0.08;
+      orbit.target.copy(activeTarget());
+      orbit.update();
+      camTweenT = 1;             // halt the locked-angle tween
+      window.__orbit = orbit;
+    } else if (!v && orbit) {
+      orbit.dispose(); orbit = null; window.__orbit = null;
+      setCamera(camIdx);         // snap back to current angle
+    }
+  });
+  button('Reset to Front', () => { if (orbit) { orbit.dispose(); orbit = null; window.__orbit = null; } setCamera(0); });
+  slider('FOV', 30, 90, 1, () => camera.fov, v => { camera.fov = v; camera.updateProjectionMatrix(); });
+
+  // ── HOOKS
+  // Patch loop's sweep into a toggle
+  window.__sweepOn = true;
+  // Patch frontGlare animation: if sweep disabled, freeze at center
+  const origFrontPosX = frontGlare.position.x;
+  // We intercept by clobbering frontGlare each frame from the existing loop. Add our own RAF watcher.
+  (function watch() {
+    if (window.__sweepOn === false) {
+      frontGlare.position.x = 0; frontGlare.position.z = 18;
+      frontGlare.lookAt(0, BOX_H * 0.5, 0);
+    }
+    if (window.__orbit) window.__orbit.update();
+    requestAnimationFrame(watch);
+  })();
+
+  // Header
+  const head = document.createElement('div');
+  head.style.cssText = 'font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:#888;margin-bottom:8px;';
+  head.textContent = '⚙ Debug Controls';
+  panel.insertBefore(head, panel.firstChild);
+}
 </script>
 </body>
 </html>
