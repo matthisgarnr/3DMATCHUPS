@@ -587,7 +587,8 @@ scene.add(floor);
   ctx.translate(-SVG_W / 2, -SVG_H / 2);
   const wordPath = new Path2D(WORDMARK_PATH);
   const cubePath = new Path2D(CUBE_PATH);
-  const fillBoth = () => { ctx.fill(wordPath); ctx.fill(cubePath); };
+  // evenodd matches the SVG's fill-rule — preserves the cube's interior triangle cutouts
+  const fillBoth = () => { ctx.fill(wordPath, 'evenodd'); ctx.fill(cubePath, 'evenodd'); };
   // 1. Wide outer halo — far ambient blue spill
   ctx.shadowColor = NEON;
   ctx.fillStyle = NEON;
