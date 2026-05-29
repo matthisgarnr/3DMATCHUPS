@@ -18,7 +18,8 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; }
-  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; }
+  html, body { height: 100dvh; }
 
   .hud {
     position: fixed; left: 24px; top: 24px; right: 24px;
@@ -129,6 +130,34 @@
   .loader__text-wrap { flex-flow: column; justify-content: center; align-items: center; display: flex; position: absolute; bottom: 3.5em; }
   .loader__text-el { text-transform: uppercase; white-space: nowrap; margin-bottom: -0.25em; padding-bottom: 0.25em; font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.18em; position: absolute; color: #fff; }
   [data-load-reset] { opacity: 0; }
+
+  /* MOBILE — stack HUD, shrink controls, keep canvas filling the viewport */
+  @media (max-width: 768px) {
+    .hud {
+      left: 12px; right: 12px; top: 12px;
+      flex-direction: column; gap: 8px;
+      align-items: stretch;
+    }
+    .market-picker { min-width: 0; width: 100%; }
+    .market-picker input { min-width: 0; font-size: 13px; }
+    .market-dropdown { max-height: 50vh; }
+    .hud > .pill.status { margin-top: 0; align-self: flex-start; }
+
+    .cam-bar {
+      top: auto; right: 50%;
+      bottom: 16px; transform: translateX(50%);
+      gap: 10px;
+    }
+    .cam-btn { width: 40px; height: 40px; }
+
+    .test-bar { bottom: 72px; gap: 24px; }
+    .test-btn { width: 40px; height: 40px; font-size: 18px; }
+  }
+  @media (max-width: 420px) {
+    .hud { left: 8px; right: 8px; top: 8px; }
+    .pill { padding: 8px 12px; font-size: 11px; }
+    .market-picker input { font-size: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -239,8 +268,10 @@ const SPORT_FILTERS = [
 // THREE SETUP
 // ─────────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Mobile detection — coarse pointer covers phones/tablets reliably, viewport width is a fallback
+const IS_MOBILE = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 820;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_MOBILE, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.25 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x050507, 1);
 renderer.shadowMap.enabled = true;
@@ -262,27 +293,26 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
 keyLight.position.set(8, 18, 14);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.mapSize.set(IS_MOBILE ? 1024 : 2048, IS_MOBILE ? 1024 : 2048);
 keyLight.shadow.camera.left = -20; keyLight.shadow.camera.right = 20;
 keyLight.shadow.camera.top = 20; keyLight.shadow.camera.bottom = -20;
 keyLight.shadow.camera.near = 1; keyLight.shadow.camera.far = 60;
 keyLight.shadow.bias = -0.0005;
 scene.add(keyLight);
 
-// Front softbox — wide horizontal bar above eye line, creates a soft band across the glass
-const frontGlare = new THREE.RectAreaLight(0xffffff, 2.2, BOX_W * 1.3, BOX_H * 0.35);
-frontGlare.position.set(0, BOX_H * 0.95, 22);
-frontGlare.lookAt(0, BOX_H * 0.35, 0);
+// Front edge-light — thin horizontal bar, reads as a single crisp specular streak across the glass top
+const frontGlare = new THREE.RectAreaLight(0xffffff, 6.0, BOX_W * 1.4, 0.35);
+frontGlare.position.set(0, BOX_H * 1.6, 18);
+frontGlare.lookAt(0, BOX_H * 0.5, 0);
 scene.add(frontGlare);
-// Off-axis softboxes — keep the glass + metal lit with a visible reflection band
-// from any of the 3 fixed camera angles (Front / Left ¾ / Right ¾), not just during transitions.
-const sideGlareL = new THREE.RectAreaLight(0xffffff, 1.8, BOX_W * 0.7, BOX_H * 0.6);
-sideGlareL.position.set(-22, BOX_H * 0.7, 14);
-sideGlareL.lookAt(0, BOX_H * 0.35, 0);
+// Off-axis edge-lights — slim verticals so each ¾ angle still gets a glass highlight on the side panes
+const sideGlareL = new THREE.RectAreaLight(0xffffff, 4.5, 0.35, BOX_H * 1.1);
+sideGlareL.position.set(-BOX_W * 1.4, BOX_H * 0.55, 6);
+sideGlareL.lookAt(0, BOX_H * 0.5, 0);
 scene.add(sideGlareL);
-const sideGlareR = new THREE.RectAreaLight(0xffffff, 1.8, BOX_W * 0.7, BOX_H * 0.6);
-sideGlareR.position.set( 22, BOX_H * 0.7, 14);
-sideGlareR.lookAt(0, BOX_H * 0.35, 0);
+const sideGlareR = new THREE.RectAreaLight(0xffffff, 4.5, 0.35, BOX_H * 1.1);
+sideGlareR.position.set( BOX_W * 1.4, BOX_H * 0.55, 6);
+sideGlareR.lookAt(0, BOX_H * 0.5, 0);
 scene.add(sideGlareR);
 // Subtle back-fill so contents read against the dark BG without flattening
 const backFill = new THREE.DirectionalLight(0xc8d4ff, 0.45);
@@ -322,6 +352,12 @@ scene.environment = envRT.texture;
 
 // LOCKED CAMERA — 3 fixed angles, tweened
 const CAM_TARGET = new THREE.Vector3(0, BOX_H * 0.85, 0);
+// On portrait, frame from floor (y=0) up to the ceiling/tube tops, centered
+const CEILING_FRAME_Y = BOX_H + 0.4 + 14.0 + 0.1;  // matches CEILING_Y (recomputed for early use)
+const CAM_TARGET_PORTRAIT = new THREE.Vector3(0, CEILING_FRAME_Y / 2, 0);
+function activeTarget() {
+  return (window.innerWidth / window.innerHeight) < 1 ? CAM_TARGET_PORTRAIT : CAM_TARGET;
+}
 const CAM_ANGLES = [
   { name: 'Front',  pos: new THREE.Vector3(  0, 12, 38) },  // dead-front, closer
   { name: 'Left',   pos: new THREE.Vector3(-22, 12, 26) },
@@ -334,12 +370,44 @@ let camTweenT = 1;
 function setCamera(idx) {
   camIdx = (idx + CAM_ANGLES.length) % CAM_ANGLES.length;
   camFromPos = camera.position.clone();
-  camToPos = CAM_ANGLES[camIdx].pos.clone();
+  camToPos = CAM_ANGLES[camIdx].pos.clone().multiplyScalar(camDistScale);
   camTweenT = 0;
   document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('on', i === camIdx));
 }
 camera.position.copy(CAM_ANGLES[0].pos);
-camera.lookAt(CAM_TARGET);
+camera.lookAt(activeTarget());
+
+// (camDistScale applied to position after fitCamera() below)
+
+// Fit camera to scene given current aspect — pulls back / widens FOV on portrait/mobile
+let camDistScale = 1;
+function fitCamera() {
+  const aspect = window.innerWidth / window.innerHeight;
+  const isPortrait = aspect < 1;
+  const baseDist = CAM_ANGLES[0].pos.length();
+  if (isPortrait) {
+    // Vertical fit: floor (y=0) at bottom of screen, ceiling/tube-tops at top
+    const halfH = (CEILING_FRAME_Y / 2) * 1.02;  // tiny breathing room
+    const fov = Math.min(62, 48 + (1 - aspect) * 22);
+    camera.fov = fov;
+    camera.aspect = aspect;
+    const vTan = Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+    const needed = halfH / vTan;
+    camDistScale = Math.max(1, needed / baseDist);
+  } else {
+    camera.fov = 46;
+    camera.aspect = aspect;
+    const vTan = Math.tan(THREE.MathUtils.degToRad(46) / 2);
+    const halfW = BOX_W * 0.62, halfH = BOX_H * 0.95;
+    const needed = Math.max(halfH / vTan, halfW / (vTan * aspect)) * 1.05;
+    camDistScale = Math.max(1, needed / baseDist);
+  }
+  camera.updateProjectionMatrix();
+}
+fitCamera();
+camera.position.copy(CAM_ANGLES[0].pos).multiplyScalar(camDistScale);
+camera.lookAt(activeTarget());
+camToPos = CAM_ANGLES[0].pos.clone().multiplyScalar(camDistScale);
 
 // POSTPROCESSING
 const composer = new EffectComposer(renderer);
@@ -359,13 +427,18 @@ function glassMat() {
   return new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     metalness: 0,
-    roughness: 0.0,
+    roughness: 0.02,
     transmission: 1.0,
-    thickness: 0.08,
-    ior: 1.5,
+    thickness: 0.12,
+    ior: 1.52,
+    attenuationDistance: 8,
+    attenuationColor: 0xeaf2ff,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.04,
+    specularIntensity: 1.0,
     transparent: true,
     side: THREE.DoubleSide,
-    envMapIntensity: 0.45,
+    envMapIntensity: 0.9,
   });
 }
 
@@ -486,24 +559,28 @@ function buildTube(xCenter) {
   // Tube glass — transmissive with chromatic dispersion for the rainbow refraction effect
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    emissive: 0xb8c8d8,
-    emissiveIntensity: 0.06,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
     metalness: 0,
-    roughness: 0.02,
-    transmission: 0.95,
-    thickness: 0.45,             // thicker = more visible refraction
-    ior: 1.52,
-    dispersion: 1.2,             // chromatic dispersion — rainbow edges on refracted light
+    roughness: 0.04,
+    transmission: 1.0,
+    thickness: 0.25,
+    ior: 1.5,
+    attenuationDistance: 6,
+    attenuationColor: 0xbfd1ff,  // very faint cool tint so transmitted blue neon stays blue
+    dispersion: 0.6,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
     transparent: true,
-    side: THREE.FrontSide,
-    envMapIntensity: 1.4,
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.2,
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(xCenter, TUBE_CENTER_Y, 0);
   scene.add(mesh);
 
   // Soft point light INSIDE the tube — lights the tube + falling balls from within (no spillage outside)
-  const innerLight = new THREE.PointLight(0xfff4e0, 6, TUBE.height * 0.9, 1.5);
+  const innerLight = new THREE.PointLight(0xfff4e0, 2.5, TUBE.height * 0.9, 1.6);
   innerLight.position.set(xCenter, TUBE_CENTER_Y, 0);
   scene.add(innerLight);
 
@@ -626,10 +703,10 @@ scene.add(floor);
   neonMesh.renderOrder = -1;
   scene.add(neonMesh);
 
-  // Two blue point lights spaced along the sign — broad ambient spill across the back area
+  // Two blue point lights placed high near the ceiling — bright spots read as ceiling-mounted neon spill
   for (const x of [-12, 12]) {
     const l = new THREE.PointLight(NEON, 28, 36, 1.4);
-    l.position.set(x, BOX_H + 4, -12);
+    l.position.set(x, CEILING_Y - 2.5, -12);
     scene.add(l);
   }
 }
@@ -1014,8 +1091,8 @@ function updateScoreboard() {
   paintScoreboard({
     nameA: m.outcomes[0],
     nameB: m.outcomes[1],
-    pctA: state.oddsA ?? m.prices[0] ?? 0.5,
-    pctB: state.oddsB ?? m.prices[1] ?? 0.5,
+    pctA: state.displayA ?? state.oddsA ?? m.prices[0] ?? 0.5,
+    pctB: state.displayB ?? state.oddsB ?? m.prices[1] ?? 0.5,
     colorA: state.colorA || '#ffffff',
     colorB: state.colorB || '#ffffff',
     sub: m.eventTitle || '',
@@ -1085,8 +1162,8 @@ await RAPIER.init();
 const gravity = { x: 0, y: -22, z: 0 };
 const world = new RAPIER.World(gravity);
 // Bump solver iterations so dense ball stacks settle cleanly without floaters
-world.integrationParameters.numSolverIterations = 12;
-world.integrationParameters.numAdditionalFrictionIterations = 6;
+world.integrationParameters.numSolverIterations = IS_MOBILE ? 6 : 12;
+world.integrationParameters.numAdditionalFrictionIterations = IS_MOBILE ? 3 : 6;
 // Now that the world exists, build the funnel tubes (they create static colliders)
 buildTube(TUBE_X_A);
 buildTube(TUBE_X_B);
@@ -1632,11 +1709,33 @@ const state = {
   market: null,
   oddsA: 0.5,
   oddsB: 0.5,
+  displayA: 0.5,    // animated/tweened value the scoreboard renders
+  displayB: 0.5,
+  _oddsTween: null,
   targetA: 50,
   targetB: 50,
   lastA: 50,
   lastB: 50,
 };
+
+// Odometer-style tween: animate displayA/displayB toward target odds and repaint scoreboard each frame
+function tweenOdds(toA, toB, { duration = 1.6, ease = 'power3.out' } = {}) {
+  if (typeof gsap === 'undefined') {
+    state.displayA = toA; state.displayB = toB; updateScoreboard(); return;
+  }
+  if (state._oddsTween) state._oddsTween.kill();
+  const fromA = state.displayA, fromB = state.displayB;
+  const obj = { t: 0 };
+  state._oddsTween = gsap.to(obj, {
+    t: 1, duration, ease,
+    onUpdate() {
+      state.displayA = fromA + (toA - fromA) * obj.t;
+      state.displayB = fromB + (toB - fromB) * obj.t;
+      updateScoreboard();
+    },
+    onComplete() { state._oddsTween = null; }
+  });
+}
 
 const $input = document.getElementById('market-input');
 const $dropdown = document.getElementById('market-dropdown');
@@ -2130,6 +2229,9 @@ async function switchMarket(market) {
   state.marketId = market.id;
   const [pA, pB] = market.prices;
   state.oddsA = pA; state.oddsB = pB;
+  // Seed the odometer at ~40% of the final number so it spins up from "already-filling" rather than 0
+  state.displayA = pA * 0.4;
+  state.displayB = pB * 0.4;
   const cap = capacityFor(market.sport);
   state.targetA = Math.round(pA * cap);
   state.targetB = Math.round(pB * cap);
@@ -2172,26 +2274,45 @@ async function switchMarket(market) {
   setGhostText(market.outcomes[0], market.outcomes[1], hexToInt(pAColor), hexToInt(pBColor));
   setHud(market, pA, pB, 0, 0);
 
-  // Initial fill
+  // Initial fill — pre-seed 40% then cascade the rest
   fillInitial();
+
+  // Odometer intro: if loader is still up, the tween starts the moment it lifts; otherwise roll now.
+  if (window.__loaderDone) {
+    tweenOdds(pA, pB, { duration: 1.6, ease: 'power3.out' });
+  } else {
+    window.__pendingIntroOdds = [pA, pB];
+  }
 }
 
 let fillIntervalId = null;
 function fillInitial() {
-  // Cancel any cascade still in progress from a previous switchMarket
   if (fillIntervalId !== null) { clearInterval(fillIntervalId); fillIntervalId = null; }
-  let i = 0;
-  const total = state.targetA + state.targetB;
-  const seq = [];
-  for (let k = 0; k < state.targetA; k++) seq.push('A');
-  for (let k = 0; k < state.targetB; k++) seq.push('B');
-  for (let k = seq.length - 1; k > 0; k--) { const j = (Math.random() * (k+1))|0; [seq[k], seq[j]] = [seq[j], seq[k]]; }
+  const shuffle = (arr) => { for (let k = arr.length-1; k > 0; k--) { const j = (Math.random()*(k+1))|0; [arr[k], arr[j]] = [arr[j], arr[k]]; } return arr; };
+  const preA = Math.floor(state.targetA * 0.4);
+  const preB = Math.floor(state.targetB * 0.4);
+  const restA = state.targetA - preA;
+  const restB = state.targetB - preB;
+  const preSeq = shuffle([...Array(preA).fill('A'), ...Array(preB).fill('B')]);
+  const restSeq = shuffle([...Array(restA).fill('A'), ...Array(restB).fill('B')]);
+
+  // Fast pre-fill burst (8ms apart) so the box looks half-full almost immediately
+  let pi = 0;
   fillIntervalId = setInterval(() => {
-    if (i >= total) { clearInterval(fillIntervalId); fillIntervalId = null; return; }
-    if (seq[i] === 'A') sideA.spawnBall();
-    else sideB.spawnBall();
-    i++;
-  }, 60);
+    if (pi >= preSeq.length) {
+      clearInterval(fillIntervalId);
+      // Then cascade the remainder at normal pace
+      let i = 0;
+      fillIntervalId = setInterval(() => {
+        if (i >= restSeq.length) { clearInterval(fillIntervalId); fillIntervalId = null; return; }
+        if (restSeq[i] === 'A') sideA.spawnBall(); else sideB.spawnBall();
+        i++;
+      }, 60);
+      return;
+    }
+    if (preSeq[pi] === 'A') sideA.spawnBall(); else sideB.spawnBall();
+    pi++;
+  }, 8);
 }
 
 async function pollOdds() {
@@ -2256,7 +2377,7 @@ async function pollOdds() {
     (pA*100) - (state.market.prices[0]*100),
     (pB*100) - (state.market.prices[1]*100));
   $statusText.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
-  updateScoreboard();
+  tweenOdds(pA, pB, { duration: 0.9, ease: 'power2.out' });
 
 }
 // Independent 5s churn timer — runs only when a BTC market is active
@@ -2353,7 +2474,7 @@ function loop() {
     const e = camTweenT < 0.5 ? 2 * camTweenT * camTweenT : 1 - Math.pow(-2 * camTweenT + 2, 2) / 2;
     camera.position.lerpVectors(camFromPos, camToPos, e);
   }
-  camera.lookAt(CAM_TARGET);
+  camera.lookAt(activeTarget());
   // Ticker scroll via UV offset — cheap, no GPU re-upload
   if (tickerTex) tickerTex.offset.x = (performance.now() * 0.00006) % 1;
   composer.render();
@@ -2371,12 +2492,20 @@ window.addEventListener('keydown', (e) => {
 });
 
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+function onResize() {
+  fitCamera();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
-});
+  // re-target current camera angle at the new scaled distance
+  const target = CAM_ANGLES[camIdx].pos.clone().multiplyScalar(camDistScale);
+  camToPos = target;
+  if (camTweenT >= 1) {
+    camera.position.copy(target);
+    camera.lookAt(activeTarget());
+  }
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
 
 // ─────────────────────────────────────────────────────────────────────
 // BOOT
@@ -2465,7 +2594,14 @@ const loader = (() => {
     if (lastWord) tl.to(lastWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.25, stagger: { each: 0.015 } }, '<0.05');
     tl.to(container, { autoAlpha: 0, duration: 0.3 });
     tl.to(progressBar, { scaleX: 0, transformOrigin: 'right center', duration: 0.3 }, '<');
-    tl.to(bg, { yPercent: -101, duration: 0.6 });
+    tl.to(bg, { yPercent: -101, duration: 0.6, onStart() {
+      window.__loaderDone = true;
+      const p = window.__pendingIntroOdds;
+      if (p && typeof tweenOdds === 'function') {
+        tweenOdds(p[0], p[1], { duration: 1.8, ease: 'power3.out' });
+        window.__pendingIntroOdds = null;
+      }
+    } });
     tl.set(wrap, { display: 'none' });
   }
   return { progress, finish };
