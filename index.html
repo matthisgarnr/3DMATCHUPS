@@ -2374,20 +2374,21 @@ const loader = (() => {
   return { progress, finish };
 })();
 
-loader.progress(0.15);
+loader.progress(0.1);
 
-// Background asset load (40MB of GLB textures) — updates loader past 50% as they complete
-loadAssetsBackground().then(() => {
-  loader.progress(0.9);
-  const s = state.market?.sport;
-  if (s === 'oil' || s === 'basketball' || s === 'soccer' || s === 'crypto') switchMarket(state.market);
-});
+// Gate the loader on BOTH the asset GLBs and the market list so the first frame
+// already uses real meshes (no procedural-basketball flash on cold loads).
+const assetsP = loadAssetsBackground().then(() => loader.progress(0.65));
+const marketsP = loadMarkets().then(() => loader.progress(0.85));
+await Promise.all([assetsP, marketsP]);
 
-loader.progress(0.4);
-await loadMarkets();
-loader.progress(0.85);
-// Give the first switchMarket a tick to populate the scene, then exit
-setTimeout(() => loader.finish(), 250);
+// Now that assets are loaded, re-run switchMarket so the default market spawns with real GLBs
+const s = state.market?.sport;
+if (s === 'oil' || s === 'basketball' || s === 'soccer' || s === 'crypto') switchMarket(state.market);
+
+loader.progress(1.0);
+// Small beat for the first physics frame to populate, then exit
+setTimeout(() => loader.finish(), 350);
 // Scoreboard repaint timer — so the middle cell (countdown/date) ticks live without waiting for the next odds poll
 setInterval(() => { updateScoreboard(); }, 1000);
 
