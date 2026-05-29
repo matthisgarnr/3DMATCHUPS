@@ -960,10 +960,10 @@ function updateScoreboard() {
 
 async function loadAssetsBackground() {
   const [j, s, b, c] = await Promise.all([
-    loadGLBMesh('/ballpit/assets/oildrum.glb'),
-    loadGLBMesh('/ballpit/assets/football.glb'),
-    loadGLBMesh('/ballpit/assets/basketball.glb'),
-    loadGLBMesh('/ballpit/assets/bitcoin.glb'),
+    loadGLBMesh('./assets/oildrum.glb'),
+    loadGLBMesh('./assets/football.glb'),
+    loadGLBMesh('./assets/basketball.glb'),
+    loadGLBMesh('./assets/bitcoin.glb'),
   ]);
   oildrumProto = j;
   soccerProto = s;

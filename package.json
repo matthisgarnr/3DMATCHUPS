@@ -1,0 +1,9 @@
+{
+  "name": "3dmatchups",
+  "version": "0.1.0",
+  "private": true,
+  "description": "3D matchups visualization — live Polymarket odds as a physics-driven ball pit",
+  "scripts": {
+    "dev": "npx serve . -l 3000 --cors"
+  }
+}
