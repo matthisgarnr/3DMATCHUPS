@@ -570,6 +570,56 @@ floor.position.y = 0;
 floor.receiveShadow = true;
 scene.add(floor);
 
+// ── Polymarket neon sign — glowing cube icon behind the boxes
+{
+  const POLY_PATH = 'M128.296 141.213C128.296 147.801 128.296 151.095 126.142 152.728C123.987 154.361 120.816 153.471 114.473 151.691L12.5414 123.088C8.7196 122.015 6.80872 121.479 5.70368 120.021C4.59863 118.564 4.59863 116.579 4.59863 112.609V45.576C4.59863 41.6066 4.59863 39.6219 5.70368 38.1641C6.80872 36.7063 8.7196 36.1701 12.5413 35.0977L114.473 6.49449C120.816 4.71455 123.987 3.82457 126.142 5.45765C128.296 7.09073 128.296 10.3848 128.296 16.9728V141.213ZM30.0199 113.762L114.419 137.448V90.0785L30.0199 113.762ZM18.4744 102.774L102.857 79.0927L18.4744 55.4118V102.774ZM30.019 44.4233L114.419 68.1078V20.7371L30.019 44.4233Z';
+  const NEON = '#0040FF';
+  const SVG_W = 133, SVG_H = 159;
+  const CV_W = 1024, CV_H = Math.round(CV_W * SVG_H / SVG_W);
+  const c = document.createElement('canvas');
+  c.width = CV_W; c.height = CV_H;
+  const ctx = c.getContext('2d');
+  // Center + scale the SVG into the canvas
+  const PADDING = 0.12;
+  const scale = Math.min(CV_W / SVG_W, CV_H / SVG_H) * (1 - PADDING);
+  ctx.translate(CV_W / 2, CV_H / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-SVG_W / 2, -SVG_H / 2);
+  const path = new Path2D(POLY_PATH);
+  // Multi-pass neon: wide outer glow → mid → tight → bright core
+  ctx.fillStyle = NEON;
+  ctx.shadowColor = NEON;
+  ctx.shadowBlur = 60; ctx.fill(path);
+  ctx.shadowBlur = 30; ctx.fill(path);
+  ctx.shadowBlur = 12; ctx.fill(path);
+  // Bright inner tube
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#8aa9ff'; ctx.fill(path);
+  // White hot core
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = '#ffffff'; ctx.fill(path);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  const neonMat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthWrite: false, toneMapped: false,
+  });
+  const planeH = 18;
+  const planeW = planeH * (SVG_W / SVG_H);
+  const neonMesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), neonMat);
+  // Mounted high on the back wall — sits in clear view above/behind the boxes
+  neonMesh.position.set(0, BOX_H * 1.4, -14);
+  neonMesh.renderOrder = -1;
+  scene.add(neonMesh);
+
+  // Strong blue point light — spills ambient blue onto the ceiling + back area + balls
+  const neonLight = new THREE.PointLight(NEON, 40, 32, 1.4);
+  neonLight.position.set(0, BOX_H * 1.0, -10);
+  scene.add(neonLight);
+}
+
 // Big ghost text behind balls per side
 const textGroup = new THREE.Group();
 scene.add(textGroup);
