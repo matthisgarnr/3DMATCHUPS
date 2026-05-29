@@ -818,9 +818,9 @@ function makeGhostText(label, color, xOffset) {
   const hex = `#${color.toString(16).padStart(6,'0')}`;
   // Auto-fit font size to canvas
   let fs = 360;
-  ctx.font = `700 ${fs}px "Space Grotesk", sans-serif`;
+  ctx.font = `700 ${fs}px "Doto", "Space Grotesk", sans-serif`;
   while (ctx.measureText(label.toUpperCase()).width > c.width - 80 && fs > 80) {
-    fs -= 20; ctx.font = `700 ${fs}px "Space Grotesk", sans-serif`;
+    fs -= 20; ctx.font = `700 ${fs}px "Doto", "Space Grotesk", sans-serif`;
   }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -1069,8 +1069,8 @@ function paintScoreboard({ nameA, nameB, pctA, pctB, colorA, colorB, sub }) {
     const abbrW = abbrCv.width * baseS;
     const abbrH = abbrCv.height * baseS;
     if (flagReady(flagImg)) {
-      const flagH = abbrH * 0.78;
-      const flagW = flagH * (flagImg.naturalWidth / flagImg.naturalHeight);
+      const flagH = abbrH * 0.40;   // half the previous size
+      const flagW = flagH * (flagImg.naturalWidth / flagImg.naturalHeight);  // locked aspect from source
       const gap = 14;
       const totalW = flagW + gap + abbrW;
       const startX = cellCx - totalW / 2;
