@@ -259,10 +259,10 @@ const MAX_PER_SIDE = {
   oil:         45,  // drums are big — fewer per side keeps 50% odds = ~half full
 };
 const MAX_PER_SIDE_MOBILE = {
-  basketball:  55,
-  soccer:      55,
-  crypto:     160,
-  oil:         30,
+  basketball:  35,
+  soccer:      35,
+  crypto:     100,
+  oil:         20,
 };
 function capacityFor(sport) {
   const tbl = (typeof IS_MOBILE !== 'undefined' && IS_MOBILE) ? MAX_PER_SIDE_MOBILE : MAX_PER_SIDE;
@@ -279,11 +279,11 @@ const SPORT_FILTERS = [
 const canvas = document.getElementById('canvas');
 // Mobile detection — coarse pointer covers phones/tablets reliably, viewport width is a fallback
 const IS_MOBILE = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 820;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.75 : 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_MOBILE, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(IS_MOBILE ? 1.0 : Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x050507, 1);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !IS_MOBILE;   // no shadow pass at all on mobile
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -422,7 +422,7 @@ camToPos = CAM_ANGLES[0].pos.clone().multiplyScalar(camDistScale);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.05, 0.5, 0.9);
-composer.addPass(bloom);
+if (!IS_MOBILE) composer.addPass(bloom);   // no postprocess bloom on mobile
 
 // ─────────────────────────────────────────────────────────────────────
 // VITRINE — metallic frame + glass panels, two halves
@@ -591,60 +591,16 @@ function loadFlagImage(iso, onReady) {
   return img;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// ROOM-WALL TICKER — LED ribbon wrapping ALL 4 walls of the room.
-// Each wall has its own visible canvas (aspect-matched, no stretch). All walls blit a window of the
-// same master canvas with a per-wall perimeter offset, so the marquee scrolls continuously around the room.
-// ─────────────────────────────────────────────────────────────────────
+// Marquee/ticker removed — no LED ribbon on the room walls.
 const tickerMeshes = [];
-{
-  const stripH = 3.5;                 // moderate height — readable from default cam
-  const yPos = 22;
-  const ROOM_BACK_Z = -16;
-  const ROOM_FRONT_Z = 16;
-  const ROOM_SIDE_X = 22;
-  const ROOM_WIDTH = 50;              // back/front wall length along X
-  const ROOM_DEPTH = 36;              // left/right wall length along Z
-
-  const placeholder = document.createElement('canvas');
-  placeholder.width = 32; placeholder.height = 32;
-
-  let perimeterCursor = 0;
-  const makeStrip = (length, x, z, rotY) => {
-    const tex = new THREE.CanvasTexture(placeholder);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, stripH), mat);
-    mesh.position.set(x, yPos, z);
-    mesh.rotation.y = rotY;
-    scene.add(mesh);
-    tickerMeshes.push({
-      mesh, mat, tex, width: length, height: stripH,
-      // Walking around the perimeter in this order: back → right → front → left
-      perimeterOffset: perimeterCursor,
-    });
-    perimeterCursor += length;
-    return mesh;
-  };
-  // Back (faces +Z toward camera)
-  makeStrip(ROOM_WIDTH, 0, ROOM_BACK_Z, 0);
-  // Right (faces -X)
-  makeStrip(ROOM_DEPTH,  ROOM_SIDE_X, 0, -Math.PI / 2);
-  // Front (faces -Z, visible from cam-2/cam-1 angles)
-  makeStrip(ROOM_WIDTH, 0, ROOM_FRONT_Z, Math.PI);
-  // Left (faces +X)
-  makeStrip(ROOM_DEPTH, -ROOM_SIDE_X, 0,  Math.PI / 2);
-  // Stash the perimeter total so the render loop can wrap consistently
-  for (const t of tickerMeshes) t._perimeterTotal = perimeterCursor;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // FUNNEL TUBES — Apple-glass refractive cylinders above each box
 // Balls spawn at the top and fall through them into the box (= smooth entry visual)
 // ─────────────────────────────────────────────────────────────────────
-const TUBE = { radius: 2.6, height: 17.0, segments: 48 };
+const TUBE = { radius: 2.6, height: 17.0, segments: (window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 820) ? 24 : 48 };
 const CEILING_Y = BOX_H + 0.4 + TUBE.height + 0.1;  // ceiling sits just above tube tops
-const TUBE_BOTTOM_Y = BOX_H + 0.4;
+const TUBE_BOTTOM_Y = BOX_H;   // flush with the top of the glass box — no gap
 const TUBE_TOP_Y = TUBE_BOTTOM_Y + TUBE.height;
 const TUBE_CENTER_Y = (TUBE_BOTTOM_Y + TUBE_TOP_Y) / 2;
 const TUBE_X_A = -BOX_W / 4;
@@ -654,25 +610,20 @@ function buildTube(xCenter) {
   // Visual cylinder — open-ended Apple-glass tube
   const geom = new THREE.CylinderGeometry(TUBE.radius, TUBE.radius, TUBE.height, TUBE.segments, 1, true);
   // Tube glass — transmissive with chromatic dispersion for the rainbow refraction effect
-  // Thicker, more opaque glass — still passes color/motion but reads more solid (less light bleed)
+  // Clean transparent glass — like the box panes. Contents render directly through (no transmission resample = sharp).
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xc8d4e0,
-    emissive: 0x000000,
+    color: 0xffffff,
     metalness: 0,
-    roughness: 0.65,
-    transmission: 0.55,             // dial down transmission for more opacity
-    thickness: 1.8,
-    ior: 1.7,
-    attenuationDistance: 2,
-    attenuationColor: 0x9ab2cc,
-    dispersion: 1.8,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.08,
-    specularIntensity: 1.4,
+    roughness: 0,
+    transmission: 0,
+    opacity: 0.08,
     transparent: true,
-    opacity: 0.92,                  // explicit opacity boost
+    depthWrite: false,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    specularIntensity: 1.4,
     side: THREE.DoubleSide,
-    envMapIntensity: 1.0,
+    envMapIntensity: 1.2,
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(xCenter, TUBE_CENTER_Y, 0);
@@ -706,30 +657,34 @@ function buildTube(xCenter) {
   junction.rotation.x = Math.PI / 2;
   scene.add(junction);
 
-  // Physics: 24-segment polygonal wall. Extended ABOVE the ceiling by 3 units to catch
-  // balls spawned over the ceiling and funnel them into the tube — prevents lateral escape.
-  // 48 segments + 30% chord overlap + thicker walls → no gaps at the polygon corners for basketballs to squeeze through.
-  // Spheres roll into the V where two adjacent segments meet; we need them to overlap heavily.
-  const N = 48;
-  const colliderExtra = 5.0;
-  const colliderHeight = TUBE.height + colliderExtra;
-  const colliderCenterY = TUBE_CENTER_Y + colliderExtra / 2;
-  for (let i = 0; i < N; i++) {
-    const angle = (i / N) * Math.PI * 2;
-    const cx = xCenter + TUBE.radius * Math.cos(angle);
-    const cz = 0 + TUBE.radius * Math.sin(angle);
-    const chord = 2 * TUBE.radius * Math.sin(Math.PI / N);
+  // Physics: TRIMESH cylinder collider — perfectly smooth, no polygon-corner gaps for spheres to escape through.
+  // Extended above the ceiling by 5 units to catch balls spawned over the ceiling.
+  {
+    const N = 64;
+    // Extend UP past spawn so high-velocity balls can't escape vertically; bottom stays at tube bottom
+    // so balls don't get trapped in a cylinder inside the box pile.
+    const yBottom = TUBE_BOTTOM_Y;
+    const yTop = TUBE_BOTTOM_Y + TUBE.height + 8.0;
+    const verts = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const x = Math.cos(a) * TUBE.radius;
+      const z = Math.sin(a) * TUBE.radius;
+      verts.push(x, yBottom, z);
+      verts.push(x, yTop,    z);
+    }
+    const indices = [];
+    for (let i = 0; i < N; i++) {
+      const i2 = (i + 1) % N;
+      const a = i * 2, b = i * 2 + 1, c = i2 * 2, d = i2 * 2 + 1;
+      indices.push(a, b, c, b, d, c);
+    }
     const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(cx, colliderCenterY, cz)
-        .setRotation((() => {
-          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -angle - Math.PI/2);
-          return { x: q.x, y: q.y, z: q.z, w: q.w };
-        })())
+      RAPIER.RigidBodyDesc.fixed().setTranslation(xCenter, 0, 0)
     );
     world.createCollider(
-      RAPIER.ColliderDesc.cuboid(chord / 2 * 1.30, colliderHeight / 2, 0.30)
-        .setFriction(0.3).setRestitution(0.25),
+      RAPIER.ColliderDesc.trimesh(new Float32Array(verts), new Uint32Array(indices))
+        .setFriction(0.3).setRestitution(0.2),
       body
     );
   }
@@ -849,6 +804,56 @@ function setGhostText(labelA, labelB, colorA, colorB) {
   textMeshA = makeGhostText(labelA, colorA, -BOX_W / 4);
   textMeshB = makeGhostText(labelB, colorB,  BOX_W / 4);
   textGroup.add(textMeshA, textMeshB);
+}
+
+// Ghost flag — small flag plane mounted on the back wall above the ghost text. Shown only for WC.
+function makeGhostFlag(xOffset) {
+  const placeholder = document.createElement('canvas');
+  placeholder.width = 4; placeholder.height = 4;
+  const tex = new THREE.CanvasTexture(placeholder);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, depthWrite: false });
+  // Default flag plane: 3:2 aspect — replaced on flag load to match the actual SVG's natural ratio
+  const flagW = BOX_W / 2 * 0.32;
+  const flagH = flagW * 2 / 3;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(flagW, flagH), mat);
+  // Flag sits on top of the ghost text — fully clears the text's top edge with a small visible gap
+  mesh.position.set(xOffset, BOX_H * 0.85, -BOX_D / 2 + 0.18);
+  mesh.visible = false;
+  mesh.userData = { defaultW: flagW };
+  return mesh;
+}
+const ghostFlagA = makeGhostFlag(-BOX_W / 4);
+const ghostFlagB = makeGhostFlag( BOX_W / 4);
+textGroup.add(ghostFlagA, ghostFlagB);
+
+function setGhostFlags(isoA, isoB) {
+  const apply = (mesh, iso) => {
+    if (!iso) { mesh.visible = false; return; }
+    const img = loadFlagImage(iso, () => setGhostFlags(isoA, isoB));
+    if (!img || !img.complete || !img.naturalWidth) return;
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = Math.round(512 * (img.naturalHeight / img.naturalWidth));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const newTex = new THREE.CanvasTexture(c);
+    newTex.colorSpace = THREE.SRGBColorSpace;
+    mesh.material.map?.dispose?.();
+    mesh.material.map = newTex;
+    mesh.material.needsUpdate = true;
+    // Resize plane to lock the aspect ratio from the actual flag
+    const flagW = mesh.userData.defaultW;
+    const flagH = flagW * (img.naturalHeight / img.naturalWidth);
+    mesh.geometry.dispose();
+    mesh.geometry = new THREE.PlaneGeometry(flagW, flagH);
+    mesh.visible = true;
+  };
+  apply(ghostFlagA, isoA);
+  apply(ghostFlagB, isoB);
+}
+function hideGhostFlags() {
+  ghostFlagA.visible = false;
+  ghostFlagB.visible = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1056,34 +1061,10 @@ function paintScoreboard({ nameA, nameB, pctA, pctB, colorA, colorB, sub }) {
   const bStackH = bAbbrCv.height + bPctCv.height + 30;
   const bTop = H/2 - bStackH/2;
 
-  // For World Cup: draw flag to the LEFT of the 3-letter abbreviation, inline on the same row
-  const isWC = m.isWorldCup;
-  const isoA = isWC ? countryIsoFor(nameA) : null;
-  const isoB = isWC ? countryIsoFor(nameB) : null;
-  const flagImgA = isoA ? loadFlagImage(isoA, () => updateScoreboard()) : null;
-  const flagImgB = isoB ? loadFlagImage(isoB, () => updateScoreboard()) : null;
-  const flagReady = (img) => img && img.complete && img.naturalWidth > 0;
-
-  const drawAbbrWithFlag = (abbrCv, flagImg, cellCx, y, maxW) => {
-    const baseS = Math.min(1, (maxW - 24) / abbrCv.width);
-    const abbrW = abbrCv.width * baseS;
-    const abbrH = abbrCv.height * baseS;
-    if (flagReady(flagImg)) {
-      const flagH = abbrH * 0.40;   // half the previous size
-      const flagW = flagH * (flagImg.naturalWidth / flagImg.naturalHeight);  // locked aspect from source
-      const gap = 14;
-      const totalW = flagW + gap + abbrW;
-      const startX = cellCx - totalW / 2;
-      ctx.drawImage(flagImg, startX, y - flagH / 2, flagW, flagH);
-      ctx.drawImage(abbrCv, startX + flagW + gap, y - abbrH / 2, abbrW, abbrH);
-    } else {
-      ctx.drawImage(abbrCv, cellCx - abbrW / 2, y - abbrH / 2, abbrW, abbrH);
-    }
-  };
-  drawAbbrWithFlag(aAbbrCv, flagImgA, cellW/2,    aTop + aAbbrCv.height/2, cellW);
-  drawCenteredFit(aPctCv, cellW/2,   aTop + aAbbrCv.height + 30 + aPctCv.height/2, cellW);
-  drawAbbrWithFlag(bAbbrCv, flagImgB, 5*cellW/2,  bTop + bAbbrCv.height/2, cellW);
-  drawCenteredFit(bPctCv, 5*cellW/2, bTop + bAbbrCv.height + 30 + bPctCv.height/2, cellW);
+  drawCenteredFit(aAbbrCv, cellW/2,   aTop + aAbbrCv.height/2, cellW);
+  drawCenteredFit(aPctCv,  cellW/2,   aTop + aAbbrCv.height + 30 + aPctCv.height/2, cellW);
+  drawCenteredFit(bAbbrCv, 5*cellW/2, bTop + bAbbrCv.height/2, cellW);
+  drawCenteredFit(bPctCv,  5*cellW/2, bTop + bAbbrCv.height + 30 + bPctCv.height/2, cellW);
 
   // Middle cell — for oil-strike markets show the full question wrapped over 3 lines;
   // for everything else show countdown / date (existing behavior).
@@ -1375,7 +1356,7 @@ await RAPIER.init();
 const gravity = { x: 0, y: -22, z: 0 };
 const world = new RAPIER.World(gravity);
 // Bump solver iterations so dense ball stacks settle cleanly without floaters
-world.integrationParameters.numSolverIterations = IS_MOBILE ? 6 : 12;
+world.integrationParameters.numSolverIterations = IS_MOBILE ? 4 : 12;
 world.integrationParameters.numAdditionalFrictionIterations = IS_MOBILE ? 3 : 6;
 // Now that the world exists, build the funnel tubes (they create static colliders)
 buildTube(TUBE_X_A);
@@ -1427,10 +1408,10 @@ const halfD = BOX_D / 2;
 const halfH = BOX_H / 2;
 // Slightly thicker physics walls (still inside visual frame) so fast spawns can't tunnel through them.
 const WT = 0.35;
-// Walls extend all the way up to the ceiling so balls bouncing off the tube bottom can't escape
-// over the rim. Invisible to renderer (no mesh), so no impact on lighting/glass look.
-const WALL_HY = (BOX_H + 0.4 + 14.0 + 0.1) / 2 + 0.2;  // half-height: floor to ceiling
-const WALL_OFFSET_Y = WALL_HY;                          // center so the wall starts at y=0
+// Walls extend ALL THE WAY UP TO THE CEILING so balls bouncing off the tube bottom can't escape
+// over the rim. Uses CEILING_Y (depends on TUBE.height) — was previously hardcoded to old tube height.
+const WALL_HY = CEILING_Y / 2 + 0.5;
+const WALL_OFFSET_Y = WALL_HY;
 
 // Left half walls
 staticBox(-BOX_W / 2,         WALL_OFFSET_Y, 0, WT, WALL_HY, halfD); // outer left
@@ -1739,16 +1720,24 @@ class Side {
     this.secondary = secondary;
   }
   spawnBall() {
-    const r = BALL_R * (SIZE_MULT[this.sport] || 1.0);
-    // Spawn INSIDE the funnel tube at the top — ball falls through the glass into the box
-    const tubeInner = Math.max(0.1, TUBE.radius - r - 0.05);
+    // Use the ACTUAL collider radius for spawn safety (oil drums + bitcoin coins have their own
+    // computed radius from the GLB — using SIZE_MULT here under-estimated the drum radius and
+    // spawned them clipping into the tube wall, causing wedging at the top.
+    const r = this.sport === 'oil' ? oildrumRadius
+            : this.sport === 'crypto' ? bitcoinRadius
+            : BALL_R * (SIZE_MULT[this.sport] || 1.0);
+    const tubeInner = Math.max(0.1, TUBE.radius - r - 0.15);
     const a = Math.random() * Math.PI * 2;
     const rd = Math.random() * tubeInner * 0.7;
     const x = this.xCenter + Math.cos(a) * rd;
     const z = Math.sin(a) * rd;
-    // Spawn ABOVE the ceiling — hidden by the ceiling slab, falls through the tube hole into view.
-    // Avoids the "ball appearing from nothing inside the tube" pop.
-    const y = CEILING_Y + 1.5 + Math.random() * 1.0;
+    // Tall cylinders (oil drums) JAM badly inside the narrow tube — they orient upright and stack like
+    // a coin roll, blocking everything behind. Spawn them just BELOW the tube bottom so they drop
+    // straight into the box. Coins (flat cylinders) tolerate the tube. Spheres stay above the ceiling.
+    let y;
+    if (this.sport === 'oil') y = BOX_H - 1.8 - Math.random() * 0.6;             // well below the tube collider — drops cleanly into the box
+    else if (this.sport === 'crypto') y = CEILING_Y - 3.0 - Math.random() * 2.0; // inside tube
+    else y = CEILING_Y + 1.5 + Math.random() * 1.0;                              // spheres: above ceiling
     // Gold coins fall like dense metal — minimal air drag, mid angular damping to settle flat once stacked.
     // Oil drums keep heavy damping because they're large stackable cylinders.
     const damp = (this.sport === 'crypto')
@@ -2615,9 +2604,9 @@ async function switchMarket(market) {
   setGhostText(ghostA, ghostB, hexToInt(pAColor), hexToInt(pBColor));
   // Country flags only on World Cup markets
   if (market.isWorldCup) {
-    // Preload flags so they're cached by the time the scoreboard paints
-    loadFlagImage(countryIsoFor(market.outcomes[0]), updateScoreboard);
-    loadFlagImage(countryIsoFor(market.outcomes[1]), updateScoreboard);
+    setGhostFlags(countryIsoFor(market.outcomes[0]), countryIsoFor(market.outcomes[1]));
+  } else {
+    hideGhostFlags();
   }
   setHud(market, pA, pB, 0, 0);
 
