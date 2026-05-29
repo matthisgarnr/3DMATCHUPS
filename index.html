@@ -1,0 +1,2405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Polymarket Ballpit — Odds Visualized</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&family=VT323&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/CustomEase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/SplitText.min.js"></script>
+<style>
+  :root {
+    --bg: #050507;
+    --ink: #f4f4f6;
+    --dim: #6b6b75;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+
+  .hud {
+    position: fixed; left: 24px; top: 24px; right: 24px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; z-index: 10;
+  }
+  .pill {
+    pointer-events: auto;
+    background: rgba(10,10,14,0.7);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(12px);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .market-picker { display: flex; gap: 8px; align-items: center; position: relative; min-width: 340px; }
+  .market-picker label { color: var(--dim); text-transform: uppercase; }
+  .market-picker input {
+    background: transparent; color: var(--ink); border: none; outline: none;
+    font-family: inherit; font-size: 12px; flex: 1; min-width: 200px;
+  }
+  .market-picker input::placeholder { color: var(--dim); }
+  .market-picker .chev { color: var(--dim); font-size: 9px; }
+  .market-dropdown {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: rgba(10,10,14,0.92); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+    max-height: 360px; overflow-y: auto; z-index: 20;
+    display: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  }
+  .market-dropdown.open { display: block; }
+  .market-item {
+    padding: 10px 14px; cursor: pointer; color: var(--ink);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .market-item:hover, .market-item.active { background: rgba(255,255,255,0.06); }
+  .market-item .tag {
+    color: var(--dim); font-size: 10px; letter-spacing: 0.1em;
+    padding: 2px 6px; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .market-item .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .market-item .meta { color: var(--dim); font-size: 10px; }
+  .market-group-head {
+    padding: 8px 14px 4px; color: var(--dim); font-size: 9px; letter-spacing: 0.2em;
+    text-transform: uppercase; pointer-events: none;
+  }
+  .status { color: var(--dim); }
+  .status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #00ff88; margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .cam-bar {
+    position: fixed; right: 24px; top: 24px;
+    display: flex; gap: 8px; z-index: 10;
+  }
+  #countdown-pill { margin-top: 0; }
+  .hud { align-items: flex-start; }
+  .hud > .pill.status { margin-top: 56px; }
+  .cam-btn {
+    pointer-events: auto;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(10,10,14,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(12px);
+    color: var(--dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, transform .1s;
+  }
+  .cam-btn:hover { color: var(--ink); border-color: rgba(255,255,255,0.3); }
+  .cam-btn.on { color: var(--ink); border-color: rgba(255,255,255,0.55); background: rgba(30,32,40,0.85); }
+  .cam-btn:active { transform: scale(0.92); }
+
+  .test-bar {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 180px;
+    display: flex; gap: 40px; z-index: 10; pointer-events: none;
+  }
+  .test-group { display: flex; gap: 8px; pointer-events: auto; }
+  .test-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(15,15,20,0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1;
+    cursor: pointer; backdrop-filter: blur(12px);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .1s, border-color .2s, background .2s;
+    font-family: inherit;
+  }
+  .test-btn:hover { border-color: rgba(255,255,255,0.4); }
+  .test-btn:active { transform: scale(0.9); }
+  .test-btn.plus { color: #00ff88; }
+  .test-btn.minus { color: #ff4466; }
+
+  /* Loader — GSAP-driven logo reveal + progress bar */
+  .loader { z-index: 200; color: #fff; width: 100%; height: 100dvh; position: fixed; inset: 0% 0% auto; }
+  .loader__bg { background-color: #0a0a0a; width: 100%; height: 100%; position: absolute; inset: 0%; }
+  .loader__container { z-index: 2; flex-flow: column; justify-content: center; align-items: center; width: 100%; height: 100%; display: flex; position: relative; }
+  .loader__bg-bar { z-index: 1; transform-origin: 0%; transform-style: preserve-3d; background-color: #fff; width: 100%; height: 0.5em; position: absolute; inset: auto 0% 0%; transform: scale3d(0, 1, 1); }
+  .loader__logo-wrap { justify-content: center; align-items: center; width: 14em; height: 3.4em; display: flex; position: relative; }
+  .loader__logo-item { width: 100%; position: absolute; }
+  .loader__logo-item.is--base { opacity: 0.2; }
+  .loader__logo-item.is--top { -webkit-clip-path: inset(0% 100% 0% 0%); clip-path: inset(0% 100% 0% 0%); }
+  .loader__logo-img { width: 100%; display: block; }
+  .loader__text-wrap { flex-flow: column; justify-content: center; align-items: center; display: flex; position: absolute; bottom: 3.5em; }
+  .loader__text-el { text-transform: uppercase; white-space: nowrap; margin-bottom: -0.25em; padding-bottom: 0.25em; font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.18em; position: absolute; color: #fff; }
+  [data-load-reset] { opacity: 0; }
+</style>
+</head>
+<body>
+<div data-load-wrap class="loader" id="loading">
+  <div data-load-bg class="loader__bg">
+    <div data-load-progress class="loader__bg-bar"></div>
+  </div>
+  <div data-load-container class="loader__container">
+    <div class="loader__logo-wrap">
+      <div class="loader__logo-item is--base">
+        <svg width="100%" viewBox="0 0 96 23" fill="none" xmlns="http://www.w3.org/2000/svg" class="loader__logo-img">
+          <path d="M0 0H95.832V22.6512H0V0Z" fill="#fff"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M42.2307 15.9397V6.08282H40.6144V15.9397H42.2307ZM26.363 12.4875V15.94H24.6818V6.5966H28.3104C29.0245 6.5966 29.6422 6.72387 30.1637 6.97841C30.6852 7.23296 31.0822 7.58589 31.3549 8.03727C31.6275 8.48859 31.7638 9.00306 31.7638 9.5806C31.7638 10.1838 31.6286 10.7036 31.3581 11.1399C31.0876 11.5763 30.6938 11.91 30.1767 12.141C29.6595 12.3721 29.0375 12.4875 28.3104 12.4875H26.363ZM26.363 11.1528H28.3104C28.9119 11.1528 29.3566 11.0137 29.6443 10.7357C29.9322 10.4576 30.076 10.0768 30.076 9.5934C30.076 9.29396 30.0133 9.01908 29.8878 8.7688C29.7623 8.51853 29.5676 8.31748 29.3036 8.16559C29.0396 8.01371 28.7085 7.93777 28.3104 7.93777H26.363V11.1528ZM35.9359 16.0687C36.6067 16.0687 37.1887 15.9168 37.682 15.6131C38.1754 15.3093 38.553 14.8901 38.8148 14.3553C39.0766 13.8205 39.2075 13.2151 39.2075 12.5392V12.4045C39.2075 11.7285 39.0766 11.1232 38.8148 10.5884C38.553 10.0537 38.1743 9.63331 37.6788 9.32739C37.1833 9.02151 36.598 8.86858 35.9229 8.86858C35.2565 8.86858 34.6766 9.02151 34.1832 9.32739C33.6899 9.63331 33.3123 10.0537 33.0505 10.5884C32.7887 11.1232 32.6578 11.7285 32.6578 12.4045V12.5392C32.6578 13.2151 32.7887 13.8205 33.0505 14.3553C33.3123 14.8901 33.691 15.3093 34.1865 15.6131C34.682 15.9168 35.2651 16.0687 35.9359 16.0687ZM34.6896 14.1565C34.9665 14.5758 35.382 14.7854 35.9359 14.7854C36.3037 14.7854 36.6121 14.6859 36.8609 14.487C37.1097 14.2881 37.2937 14.0196 37.4127 13.6817C37.5317 13.3436 37.5912 12.9629 37.5912 12.5394V12.4046C37.5912 11.9853 37.5317 11.6057 37.4127 11.2656C37.2937 10.9254 37.1087 10.6549 36.8577 10.4538C36.6067 10.2527 36.2951 10.1522 35.9229 10.1522C35.5551 10.1522 35.2478 10.2527 35.0011 10.4538C34.7545 10.6549 34.5717 10.9254 34.4526 11.2656C34.3336 11.6057 34.2741 11.9853 34.2741 12.4046V12.5394C34.2741 13.1982 34.4126 13.7373 34.6896 14.1565ZM45.9777 18.2267C45.6466 18.5711 45.1738 18.7433 44.5593 18.7433C44.3472 18.7433 44.0898 18.7048 43.7868 18.6278V17.4021L44.0854 17.415C44.4706 17.415 44.7638 17.3476 44.965 17.2128C45.1662 17.0781 45.3253 16.8417 45.4421 16.5037L45.6628 15.9133L43.1961 8.99563H44.9423L46.4028 13.6545L47.8179 8.99563H49.5381L46.7404 16.9914C46.563 17.4706 46.3087 17.8823 45.9777 18.2267ZM52.0356 15.9403V10.9221C52.2952 10.4216 52.7345 10.1713 53.3533 10.1713C53.7601 10.1713 54.0682 10.2697 54.2783 10.4665C54.4883 10.6632 54.5933 10.9948 54.5933 11.4611V15.9403H56.2095V11.3136L56.2029 11.1659C56.298 10.8622 56.4594 10.6205 56.6866 10.4408C56.9137 10.2611 57.1962 10.1713 57.5339 10.1713C57.9447 10.1713 58.2532 10.2643 58.4588 10.4504C58.6644 10.6365 58.7672 10.967 58.7672 11.4419V15.9403H60.3834V11.4483C60.3834 10.5541 60.1866 9.90066 59.7925 9.48786C59.399 9.07501 58.8297 8.86858 58.0857 8.86858C57.6135 8.86858 57.1962 8.96165 56.8325 9.14773C56.4693 9.33382 56.1681 9.59374 55.9304 9.92743C55.753 9.56807 55.4998 9.30172 55.1709 9.1285C54.8421 8.95522 54.4568 8.86858 54.0154 8.86858C53.5826 8.86858 53.1964 8.94236 52.8567 9.08997C52.517 9.23759 52.2281 9.45039 51.9901 9.72849L51.9382 8.9969H50.4192V15.9403H52.0356ZM65.1851 15.8569C64.8778 15.9981 64.5295 16.0687 64.1399 16.0687C63.6811 16.0687 63.2704 15.9789 62.9067 15.7991C62.543 15.6195 62.2594 15.3713 62.0566 15.0548C61.8532 14.7382 61.7515 14.3831 61.7515 13.9895C61.7515 13.2494 62.0295 12.6826 62.5855 12.2889C63.1416 11.8954 63.9304 11.6986 64.9513 11.6986H65.9252V11.2494C65.9252 10.8815 65.8235 10.5937 65.6201 10.3862C65.4167 10.1788 65.116 10.075 64.7175 10.075C64.4798 10.075 64.2698 10.1157 64.0879 10.1969C63.906 10.2782 63.7657 10.3895 63.6662 10.5306C63.5667 10.6718 63.5169 10.8301 63.5169 11.0055H61.9007C61.9007 10.6333 62.0206 10.2836 62.2605 9.95632C62.501 9.62905 62.8426 9.36591 63.2864 9.16697C63.7297 8.96802 64.2371 8.86858 64.8087 8.86858C65.3454 8.86858 65.8191 8.95843 66.2303 9.13809C66.6416 9.3178 66.9627 9.58731 67.1943 9.94667C67.4259 10.306 67.5414 10.7446 67.5414 11.2622V14.3232C67.5414 14.9564 67.6304 15.459 67.8079 15.8312V15.9403H66.159C66.0894 15.7906 66.0291 15.5745 65.9772 15.2922C65.7561 15.5275 65.4924 15.7157 65.1851 15.8569ZM64.4516 14.7913C64.11 14.7913 63.8436 14.7025 63.6534 14.525C63.4628 14.3474 63.3677 14.1175 63.3677 13.8351C63.3677 13.4715 63.5125 13.1891 63.8027 12.988C64.0923 12.787 64.519 12.6864 65.0812 12.6864H65.9252V13.9827C65.8042 14.2052 65.6124 14.3956 65.3509 14.5538C65.0889 14.7121 64.7893 14.7913 64.4516 14.7913ZM70.7789 11.2108V15.9403H69.1626V8.9969H70.7009L70.7462 9.77982C70.9237 9.48891 71.1448 9.26431 71.4084 9.10599C71.6726 8.94774 71.9778 8.86858 72.3238 8.86858C72.415 8.86858 72.5172 8.87712 72.6322 8.89424C72.7466 8.91137 72.8323 8.93061 72.8887 8.952L72.8754 10.46C72.6593 10.4258 72.4448 10.4087 72.2331 10.4087C71.5101 10.4087 71.0254 10.6761 70.7789 11.2108ZM75.4766 15.9397V13.6872L76.1847 12.9749L78.2293 15.9397H80.0987L77.2233 11.884L79.8261 8.99624H77.8788L75.9575 11.146L75.4766 11.7364V6.08282H73.867V15.9397H75.4766ZM85.5758 15.6965C85.1214 15.9446 84.5714 16.0687 83.9269 16.0687C83.2432 16.0687 82.6457 15.9221 82.135 15.6291C81.6248 15.3361 81.2329 14.935 80.9604 14.4259C80.6879 13.9168 80.5513 13.3456 80.5513 12.7125V12.4494C80.5513 11.735 80.6895 11.1071 80.967 10.566C81.2439 10.0248 81.6248 9.60654 82.109 9.31137C82.5937 9.01619 83.1393 8.86858 83.7451 8.86858C84.4073 8.86858 84.9633 9.01193 85.4133 9.29856C85.8632 9.58514 86.1998 9.98625 86.4226 10.5018C86.6453 11.0173 86.757 11.6152 86.757 12.2954V12.9692H82.1808C82.2107 13.3242 82.3041 13.6387 82.46 13.9125C82.6153 14.1863 82.8264 14.4002 83.0929 14.5542C83.3587 14.7082 83.6694 14.7852 84.0242 14.7852C84.7511 14.7852 85.3353 14.5029 85.777 13.9382L86.6404 14.766C86.385 15.1382 86.0301 15.4484 85.5758 15.6965ZM85.1601 11.8142H82.2129C82.2864 11.288 82.4533 10.8795 82.7131 10.5886C82.9724 10.2976 83.3145 10.1522 83.7385 10.1522C84.2144 10.1522 84.5654 10.2966 84.7903 10.5854C85.0153 10.8741 85.1386 11.2431 85.1601 11.6923V11.8142ZM91.2469 15.9146C90.9357 16.0172 90.5853 16.0685 90.1956 16.0685C89.6241 16.0685 89.1741 15.9124 88.8453 15.6001C88.5164 15.2878 88.3522 14.7894 88.3522 14.1049V10.1775H87.2097V8.99679H88.3522V7.30269H89.9684V8.99679H91.2016V10.1775H89.9684V13.9958C89.9684 14.2867 90.0287 14.4846 90.1503 14.5894C90.2713 14.6942 90.4532 14.7466 90.6953 14.7466C90.8683 14.7466 91.0524 14.7252 91.2469 14.6824V15.9146Z" fill="#0a0a0a"/>
+          <path d="M17.5589 17.8839C17.5589 18.5794 17.5589 18.9272 17.333 19.0996C17.107 19.272 16.7744 19.1781 16.1091 18.9901L5.41806 15.9704C5.01721 15.8572 4.81679 15.8006 4.70089 15.6467C4.58499 15.4928 4.58499 15.2833 4.58499 14.8642V7.78737C4.58499 7.36832 4.58499 7.15879 4.70089 7.00488C4.81679 6.85098 5.01721 6.79437 5.41806 6.68115L16.1091 3.66146C16.7744 3.47354 17.107 3.37959 17.333 3.552C17.5589 3.7244 17.5589 4.07216 17.5589 4.76767V17.8839ZM7.25129 14.9859L16.1035 17.4865V12.4856L7.25129 14.9859ZM6.04034 13.8258L14.8908 11.3258L6.04034 8.82575V13.8258ZM7.25119 7.66568L16.1035 10.1661V5.16508L7.25119 7.66568Z" fill="#0a0a0a"/>
+        </svg>
+      </div>
+      <div data-load-logo class="loader__logo-item is--top">
+        <svg width="100%" viewBox="0 0 96 23" fill="none" xmlns="http://www.w3.org/2000/svg" class="loader__logo-img">
+          <path d="M0 0H95.832V22.6512H0V0Z" fill="#fff"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M42.2307 15.9397V6.08282H40.6144V15.9397H42.2307ZM26.363 12.4875V15.94H24.6818V6.5966H28.3104C29.0245 6.5966 29.6422 6.72387 30.1637 6.97841C30.6852 7.23296 31.0822 7.58589 31.3549 8.03727C31.6275 8.48859 31.7638 9.00306 31.7638 9.5806C31.7638 10.1838 31.6286 10.7036 31.3581 11.1399C31.0876 11.5763 30.6938 11.91 30.1767 12.141C29.6595 12.3721 29.0375 12.4875 28.3104 12.4875H26.363ZM26.363 11.1528H28.3104C28.9119 11.1528 29.3566 11.0137 29.6443 10.7357C29.9322 10.4576 30.076 10.0768 30.076 9.5934C30.076 9.29396 30.0133 9.01908 29.8878 8.7688C29.7623 8.51853 29.5676 8.31748 29.3036 8.16559C29.0396 8.01371 28.7085 7.93777 28.3104 7.93777H26.363V11.1528ZM35.9359 16.0687C36.6067 16.0687 37.1887 15.9168 37.682 15.6131C38.1754 15.3093 38.553 14.8901 38.8148 14.3553C39.0766 13.8205 39.2075 13.2151 39.2075 12.5392V12.4045C39.2075 11.7285 39.0766 11.1232 38.8148 10.5884C38.553 10.0537 38.1743 9.63331 37.6788 9.32739C37.1833 9.02151 36.598 8.86858 35.9229 8.86858C35.2565 8.86858 34.6766 9.02151 34.1832 9.32739C33.6899 9.63331 33.3123 10.0537 33.0505 10.5884C32.7887 11.1232 32.6578 11.7285 32.6578 12.4045V12.5392C32.6578 13.2151 32.7887 13.8205 33.0505 14.3553C33.3123 14.8901 33.691 15.3093 34.1865 15.6131C34.682 15.9168 35.2651 16.0687 35.9359 16.0687ZM34.6896 14.1565C34.9665 14.5758 35.382 14.7854 35.9359 14.7854C36.3037 14.7854 36.6121 14.6859 36.8609 14.487C37.1097 14.2881 37.2937 14.0196 37.4127 13.6817C37.5317 13.3436 37.5912 12.9629 37.5912 12.5394V12.4046C37.5912 11.9853 37.5317 11.6057 37.4127 11.2656C37.2937 10.9254 37.1087 10.6549 36.8577 10.4538C36.6067 10.2527 36.2951 10.1522 35.9229 10.1522C35.5551 10.1522 35.2478 10.2527 35.0011 10.4538C34.7545 10.6549 34.5717 10.9254 34.4526 11.2656C34.3336 11.6057 34.2741 11.9853 34.2741 12.4046V12.5394C34.2741 13.1982 34.4126 13.7373 34.6896 14.1565ZM45.9777 18.2267C45.6466 18.5711 45.1738 18.7433 44.5593 18.7433C44.3472 18.7433 44.0898 18.7048 43.7868 18.6278V17.4021L44.0854 17.415C44.4706 17.415 44.7638 17.3476 44.965 17.2128C45.1662 17.0781 45.3253 16.8417 45.4421 16.5037L45.6628 15.9133L43.1961 8.99563H44.9423L46.4028 13.6545L47.8179 8.99563H49.5381L46.7404 16.9914C46.563 17.4706 46.3087 17.8823 45.9777 18.2267ZM52.0356 15.9403V10.9221C52.2952 10.4216 52.7345 10.1713 53.3533 10.1713C53.7601 10.1713 54.0682 10.2697 54.2783 10.4665C54.4883 10.6632 54.5933 10.9948 54.5933 11.4611V15.9403H56.2095V11.3136L56.2029 11.1659C56.298 10.8622 56.4594 10.6205 56.6866 10.4408C56.9137 10.2611 57.1962 10.1713 57.5339 10.1713C57.9447 10.1713 58.2532 10.2643 58.4588 10.4504C58.6644 10.6365 58.7672 10.967 58.7672 11.4419V15.9403H60.3834V11.4483C60.3834 10.5541 60.1866 9.90066 59.7925 9.48786C59.399 9.07501 58.8297 8.86858 58.0857 8.86858C57.6135 8.86858 57.1962 8.96165 56.8325 9.14773C56.4693 9.33382 56.1681 9.59374 55.9304 9.92743C55.753 9.56807 55.4998 9.30172 55.1709 9.1285C54.8421 8.95522 54.4568 8.86858 54.0154 8.86858C53.5826 8.86858 53.1964 8.94236 52.8567 9.08997C52.517 9.23759 52.2281 9.45039 51.9901 9.72849L51.9382 8.9969H50.4192V15.9403H52.0356ZM65.1851 15.8569C64.8778 15.9981 64.5295 16.0687 64.1399 16.0687C63.6811 16.0687 63.2704 15.9789 62.9067 15.7991C62.543 15.6195 62.2594 15.3713 62.0566 15.0548C61.8532 14.7382 61.7515 14.3831 61.7515 13.9895C61.7515 13.2494 62.0295 12.6826 62.5855 12.2889C63.1416 11.8954 63.9304 11.6986 64.9513 11.6986H65.9252V11.2494C65.9252 10.8815 65.8235 10.5937 65.6201 10.3862C65.4167 10.1788 65.116 10.075 64.7175 10.075C64.4798 10.075 64.2698 10.1157 64.0879 10.1969C63.906 10.2782 63.7657 10.3895 63.6662 10.5306C63.5667 10.6718 63.5169 10.8301 63.5169 11.0055H61.9007C61.9007 10.6333 62.0206 10.2836 62.2605 9.95632C62.501 9.62905 62.8426 9.36591 63.2864 9.16697C63.7297 8.96802 64.2371 8.86858 64.8087 8.86858C65.3454 8.86858 65.8191 8.95843 66.2303 9.13809C66.6416 9.3178 66.9627 9.58731 67.1943 9.94667C67.4259 10.306 67.5414 10.7446 67.5414 11.2622V14.3232C67.5414 14.9564 67.6304 15.459 67.8079 15.8312V15.9403H66.159C66.0894 15.7906 66.0291 15.5745 65.9772 15.2922C65.7561 15.5275 65.4924 15.7157 65.1851 15.8569ZM64.4516 14.7913C64.11 14.7913 63.8436 14.7025 63.6534 14.525C63.4628 14.3474 63.3677 14.1175 63.3677 13.8351C63.3677 13.4715 63.5125 13.1891 63.8027 12.988C64.0923 12.787 64.519 12.6864 65.0812 12.6864H65.9252V13.9827C65.8042 14.2052 65.6124 14.3956 65.3509 14.5538C65.0889 14.7121 64.7893 14.7913 64.4516 14.7913ZM70.7789 11.2108V15.9403H69.1626V8.9969H70.7009L70.7462 9.77982C70.9237 9.48891 71.1448 9.26431 71.4084 9.10599C71.6726 8.94774 71.9778 8.86858 72.3238 8.86858C72.415 8.86858 72.5172 8.87712 72.6322 8.89424C72.7466 8.91137 72.8323 8.93061 72.8887 8.952L72.8754 10.46C72.6593 10.4258 72.4448 10.4087 72.2331 10.4087C71.5101 10.4087 71.0254 10.6761 70.7789 11.2108ZM75.4766 15.9397V13.6872L76.1847 12.9749L78.2293 15.9397H80.0987L77.2233 11.884L79.8261 8.99624H77.8788L75.9575 11.146L75.4766 11.7364V6.08282H73.867V15.9397H75.4766ZM85.5758 15.6965C85.1214 15.9446 84.5714 16.0687 83.9269 16.0687C83.2432 16.0687 82.6457 15.9221 82.135 15.6291C81.6248 15.3361 81.2329 14.935 80.9604 14.4259C80.6879 13.9168 80.5513 13.3456 80.5513 12.7125V12.4494C80.5513 11.735 80.6895 11.1071 80.967 10.566C81.2439 10.0248 81.6248 9.60654 82.109 9.31137C82.5937 9.01619 83.1393 8.86858 83.7451 8.86858C84.4073 8.86858 84.9633 9.01193 85.4133 9.29856C85.8632 9.58514 86.1998 9.98625 86.4226 10.5018C86.6453 11.0173 86.757 11.6152 86.757 12.2954V12.9692H82.1808C82.2107 13.3242 82.3041 13.6387 82.46 13.9125C82.6153 14.1863 82.8264 14.4002 83.0929 14.5542C83.3587 14.7082 83.6694 14.7852 84.0242 14.7852C84.7511 14.7852 85.3353 14.5029 85.777 13.9382L86.6404 14.766C86.385 15.1382 86.0301 15.4484 85.5758 15.6965ZM85.1601 11.8142H82.2129C82.2864 11.288 82.4533 10.8795 82.7131 10.5886C82.9724 10.2976 83.3145 10.1522 83.7385 10.1522C84.2144 10.1522 84.5654 10.2966 84.7903 10.5854C85.0153 10.8741 85.1386 11.2431 85.1601 11.6923V11.8142ZM91.2469 15.9146C90.9357 16.0172 90.5853 16.0685 90.1956 16.0685C89.6241 16.0685 89.1741 15.9124 88.8453 15.6001C88.5164 15.2878 88.3522 14.7894 88.3522 14.1049V10.1775H87.2097V8.99679H88.3522V7.30269H89.9684V8.99679H91.2016V10.1775H89.9684V13.9958C89.9684 14.2867 90.0287 14.4846 90.1503 14.5894C90.2713 14.6942 90.4532 14.7466 90.6953 14.7466C90.8683 14.7466 91.0524 14.7252 91.2469 14.6824V15.9146Z" fill="#0a0a0a"/>
+          <path d="M17.5589 17.8839C17.5589 18.5794 17.5589 18.9272 17.333 19.0996C17.107 19.272 16.7744 19.1781 16.1091 18.9901L5.41806 15.9704C5.01721 15.8572 4.81679 15.8006 4.70089 15.6467C4.58499 15.4928 4.58499 15.2833 4.58499 14.8642V7.78737C4.58499 7.36832 4.58499 7.15879 4.70089 7.00488C4.81679 6.85098 5.01721 6.79437 5.41806 6.68115L16.1091 3.66146C16.7744 3.47354 17.107 3.37959 17.333 3.552C17.5589 3.7244 17.5589 4.07216 17.5589 4.76767V17.8839ZM7.25129 14.9859L16.1035 17.4865V12.4856L7.25129 14.9859ZM6.04034 13.8258L14.8908 11.3258L6.04034 8.82575V13.8258ZM7.25119 7.66568L16.1035 10.1661V5.16508L7.25119 7.66568Z" fill="#0a0a0a"/>
+        </svg>
+      </div>
+    </div>
+    <div class="loader__text-wrap">
+      <span data-load-text data-load-reset class="loader__text-el">Loading physics</span>
+      <span data-load-text data-load-reset class="loader__text-el">Connecting markets</span>
+    </div>
+  </div>
+</div>
+<canvas id="canvas"></canvas>
+
+
+<div class="hud">
+  <div class="pill market-picker" id="market-picker">
+    <label>Market</label>
+    <input type="text" id="market-input" placeholder="Search markets, teams, events…" autocomplete="off" />
+    <span class="chev">▼</span>
+    <div class="market-dropdown" id="market-dropdown"></div>
+  </div>
+  <div class="pill status" id="countdown-pill" style="display:none;font-variant-numeric:tabular-nums;">
+    <span style="color:var(--dim);margin-right:6px;">RESOLVES IN</span>
+    <span id="countdown-text" style="color:var(--ink);">--:--</span>
+  </div>
+</div>
+
+<div class="cam-bar">
+  <button class="cam-btn on" data-cam="0" aria-label="Front view">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="6" width="16" height="12" rx="1.5"/></svg>
+  </button>
+  <button class="cam-btn" data-cam="1" aria-label="Left three-quarter view">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-3 9 3v10l-9 3-9-3z"/><path d="M3 7l9 3 9-3M12 10v10"/></svg>
+  </button>
+  <button class="cam-btn" data-cam="2" aria-label="Right three-quarter view">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="transform:scaleX(-1)"><path d="M3 7l9-3 9 3v10l-9 3-9-3z"/><path d="M3 7l9 3 9-3M12 10v10"/></svg>
+  </button>
+</div>
+
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "rapier": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js",
+    "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js",
+    "gltf": "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js",
+    "ralib": "https://unpkg.com/three@0.160.0/examples/jsm/lights/RectAreaLightUniformsLib.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OrbitControls } from 'controls';
+import { GLTFLoader } from 'gltf';
+import { RectAreaLightUniformsLib } from 'ralib';
+import RAPIER from 'rapier';
+
+// ─────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────
+const POLL_MS = 10000;       // odds poll interval
+const BOX_W = 20;            // box width (each half = 10)
+const BOX_H = 13;            // box height
+const BOX_D = 9;             // box depth
+const BALL_R = 0.72;         // ball radius
+const WALL_T = 0.2;          // physical wall thickness (invisible)
+
+// Volumetric capacity per side — at 100% odds the box is visually full, at 50% it's half full
+// Calibrated so that at 100% odds the box fills visually to the top, at 50% to half.
+const MAX_PER_SIDE = {
+  basketball:  90,  // now same scale as soccer
+  soccer:      90,
+  crypto:     280,
+  oil:         45,  // drums are big — fewer per side keeps 50% odds = ~half full
+};
+function capacityFor(sport) { return MAX_PER_SIDE[sport] || 100; }
+
+const SPORT_FILTERS = [
+  { tag: 'NBA', sport: 'basketball', label: 'NBA' },
+];
+
+// ─────────────────────────────────────────────────────────────────────
+// THREE SETUP
+// ─────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x050507, 1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+RectAreaLightUniformsLib.init();
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x050507, 40, 110);
+
+const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 4, 28);
+camera.lookAt(0, 1, 0);
+
+// LIGHTING
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+keyLight.position.set(8, 18, 14);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.left = -20; keyLight.shadow.camera.right = 20;
+keyLight.shadow.camera.top = 20; keyLight.shadow.camera.bottom = -20;
+keyLight.shadow.camera.near = 1; keyLight.shadow.camera.far = 60;
+keyLight.shadow.bias = -0.0005;
+scene.add(keyLight);
+
+// Front softbox — wide horizontal bar above eye line, creates a soft band across the glass
+const frontGlare = new THREE.RectAreaLight(0xffffff, 2.2, BOX_W * 1.3, BOX_H * 0.35);
+frontGlare.position.set(0, BOX_H * 0.95, 22);
+frontGlare.lookAt(0, BOX_H * 0.35, 0);
+scene.add(frontGlare);
+// Off-axis softboxes — keep the glass + metal lit with a visible reflection band
+// from any of the 3 fixed camera angles (Front / Left ¾ / Right ¾), not just during transitions.
+const sideGlareL = new THREE.RectAreaLight(0xffffff, 1.8, BOX_W * 0.7, BOX_H * 0.6);
+sideGlareL.position.set(-22, BOX_H * 0.7, 14);
+sideGlareL.lookAt(0, BOX_H * 0.35, 0);
+scene.add(sideGlareL);
+const sideGlareR = new THREE.RectAreaLight(0xffffff, 1.8, BOX_W * 0.7, BOX_H * 0.6);
+sideGlareR.position.set( 22, BOX_H * 0.7, 14);
+sideGlareR.lookAt(0, BOX_H * 0.35, 0);
+scene.add(sideGlareR);
+// Subtle back-fill so contents read against the dark BG without flattening
+const backFill = new THREE.DirectionalLight(0xc8d4ff, 0.45);
+backFill.position.set(-4, 8, -16);
+scene.add(backFill);
+
+// ENV MAP — gives glass + metal something to reflect (procedural gradient cube)
+const pmrem = new THREE.PMREMGenerator(renderer);
+function buildEnvScene() {
+  const s = new THREE.Scene();
+  // dark vignette with a few colored "studio lights"
+  const back = new THREE.Mesh(
+    new THREE.SphereGeometry(50, 32, 16),
+    new THREE.MeshBasicMaterial({ color: 0x14181f, side: THREE.BackSide })
+  );
+  s.add(back);
+  // Restrained env softboxes — give glass a clean horizon line, don't over-reflect
+  const blobs = [
+    [0x70808a, 0,  16,  8, 6],
+    [0x4c5560,-14,  6,  6, 5],
+    [0x4c5560, 14,  6,  6, 5],
+    [0x70808a, 0,   2, 14, 6],
+    [0x3a4250, 0,   2,-14, 5],
+  ];
+  for (const [c, x, y, z, r] of blobs) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 16, 12),
+      new THREE.MeshBasicMaterial({ color: c })
+    );
+    m.position.set(x, y, z);
+    s.add(m);
+  }
+  return s;
+}
+const envRT = pmrem.fromScene(buildEnvScene(), 0.04);
+scene.environment = envRT.texture;
+
+// LOCKED CAMERA — 3 fixed angles, tweened
+const CAM_TARGET = new THREE.Vector3(0, BOX_H * 0.85, 0);
+const CAM_ANGLES = [
+  { name: 'Front',  pos: new THREE.Vector3(  0, 12, 38) },  // dead-front, closer
+  { name: 'Left',   pos: new THREE.Vector3(-22, 12, 26) },
+  { name: 'Right',  pos: new THREE.Vector3( 22, 12, 26) },
+];
+let camIdx = 0;
+let camFromPos = camera.position.clone();
+let camToPos = CAM_ANGLES[0].pos.clone();
+let camTweenT = 1;
+function setCamera(idx) {
+  camIdx = (idx + CAM_ANGLES.length) % CAM_ANGLES.length;
+  camFromPos = camera.position.clone();
+  camToPos = CAM_ANGLES[camIdx].pos.clone();
+  camTweenT = 0;
+  document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('on', i === camIdx));
+}
+camera.position.copy(CAM_ANGLES[0].pos);
+camera.lookAt(CAM_TARGET);
+
+// POSTPROCESSING
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.5, 0.9);
+composer.addPass(bloom);
+
+// ─────────────────────────────────────────────────────────────────────
+// VITRINE — metallic frame + glass panels, two halves
+// ─────────────────────────────────────────────────────────────────────
+const boxGroup = new THREE.Group();
+scene.add(boxGroup);
+
+// Glass material — ultra-clear, no tint, light catches the surface only
+// Ultra-clean glass — minimal reflection/clearcoat, just thin transmissive panes
+function glassMat() {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    metalness: 0,
+    roughness: 0.0,
+    transmission: 1.0,
+    thickness: 0.08,
+    ior: 1.5,
+    transparent: true,
+    side: THREE.DoubleSide,
+    envMapIntensity: 0.45,
+  });
+}
+
+// Metallic emissive frame material (chrome + neon glow)
+// Brushed chrome frame — gets a very subtle team-color emissive in switchMarket (anodized vibe)
+function frameMat() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xd8dde4,
+    metalness: 1.0,
+    roughness: 0.28,
+    emissive: 0x000000,
+    emissiveIntensity: 0.0,
+  });
+}
+
+// A single frame edge as a thin rounded box
+function frameEdge(length, axis, mat) {
+  const t = 0.18;
+  const geom = axis === 'x'
+    ? new THREE.BoxGeometry(length, t, t)
+    : axis === 'y'
+    ? new THREE.BoxGeometry(t, length, t)
+    : new THREE.BoxGeometry(t, t, length);
+  const m = new THREE.Mesh(geom, mat);
+  m.castShadow = true;
+  return m;
+}
+
+function buildHalf(tintHex, xOffset) {
+  const g = new THREE.Group();
+  const w = BOX_W / 2, h = BOX_H, d = BOX_D;
+  const hx = w / 2, hy = h / 2, hz = d / 2;
+
+  const fMat = frameMat();
+  const gMat = glassMat();
+  // Top strip is now neutral white — color now lives on the frame edges (see ledMat below)
+  const neonGeom = new THREE.BoxGeometry(w * 0.92, 0.08, 0.28);
+  const neonMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 1.6,
+    metalness: 0, roughness: 0.35,
+    toneMapped: false,
+  });
+  const neon = new THREE.Mesh(neonGeom, neonMat);
+  neon.position.set(0, hy + 0.1, 0);
+  g.add(neon);
+
+  // (LED strips removed for now — frame stays clean. Team identity comes from a subtle frame tint instead.)
+  const ledMat = null;
+  // Soft diffuse top light — large RectAreaLight covering the box's top, pointing down.
+  // Stronger now to compensate for the ceiling blocking ambient and to spread color across the pile.
+  // Top spot — invisible source (no rectangle artifact on back wall), pure downward illumination
+  const topSpot = new THREE.SpotLight(0xfff4e0, 18, h * 3, Math.PI * 0.5, 0.95, 1.4);
+  topSpot.position.set(0, hy + 1.5, 0);
+  topSpot.target.position.set(0, -hy, 0);
+  g.add(topSpot);
+  g.add(topSpot.target);
+  // Subtle directional back-fill — no visible source
+  const backFill = new THREE.DirectionalLight(0xc8d4e8, 0.6);
+  backFill.position.set(0, hy, -hz - 1);
+  backFill.target.position.set(0, 0, hz);
+  g.add(backFill);
+  g.add(backFill.target);
+  // Stubs so existing references don't crash
+  const colorLightA = null, colorLightB = null;
+
+  // 12 edges of the box
+  // Bottom 4
+  const eBN = frameEdge(w, 'x', fMat); eBN.position.set(0, -hy, -hz); g.add(eBN);
+  const eBS = frameEdge(w, 'x', fMat); eBS.position.set(0, -hy,  hz); g.add(eBS);
+  const eBL = frameEdge(d, 'z', fMat); eBL.position.set(-hx, -hy, 0); g.add(eBL);
+  const eBR = frameEdge(d, 'z', fMat); eBR.position.set( hx, -hy, 0); g.add(eBR);
+  // Top 4
+  const eTN = frameEdge(w, 'x', fMat); eTN.position.set(0,  hy, -hz); g.add(eTN);
+  const eTS = frameEdge(w, 'x', fMat); eTS.position.set(0,  hy,  hz); g.add(eTS);
+  const eTL = frameEdge(d, 'z', fMat); eTL.position.set(-hx,  hy, 0); g.add(eTL);
+  const eTR = frameEdge(d, 'z', fMat); eTR.position.set( hx,  hy, 0); g.add(eTR);
+  // Verticals 4
+  const eVNL = frameEdge(h, 'y', fMat); eVNL.position.set(-hx, 0, -hz); g.add(eVNL);
+  const eVNR = frameEdge(h, 'y', fMat); eVNR.position.set( hx, 0, -hz); g.add(eVNR);
+  const eVSL = frameEdge(h, 'y', fMat); eVSL.position.set(-hx, 0,  hz); g.add(eVSL);
+  const eVSR = frameEdge(h, 'y', fMat); eVSR.position.set( hx, 0,  hz); g.add(eVSR);
+
+  // Glass panels — back, front, left, right (no top, no bottom)
+  const back  = new THREE.Mesh(new THREE.PlaneGeometry(w, h), gMat);
+  back.position.set(0, 0, -hz); g.add(back);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(w, h), gMat);
+  front.position.set(0, 0, hz); front.rotation.y = Math.PI; g.add(front);
+  const left  = new THREE.Mesh(new THREE.PlaneGeometry(d, h), gMat);
+  left.position.set(-hx, 0, 0); left.rotation.y = Math.PI / 2; g.add(left);
+  const right = new THREE.Mesh(new THREE.PlaneGeometry(d, h), gMat);
+  right.position.set( hx, 0, 0); right.rotation.y = -Math.PI / 2; g.add(right);
+
+  g.position.set(xOffset, h / 2, 0);
+  return { group: g, frameMat: fMat, glassMat: gMat, neonMat, ledMat, colorLightA, colorLightB };
+}
+
+const halfA = buildHalf(0x8ecae6, -BOX_W / 4);
+const halfB = buildHalf(0xfb8500,  BOX_W / 4);
+boxGroup.add(halfA.group, halfB.group);
+
+// ─────────────────────────────────────────────────────────────────────
+// FUNNEL TUBES — Apple-glass refractive cylinders above each box
+// Balls spawn at the top and fall through them into the box (= smooth entry visual)
+// ─────────────────────────────────────────────────────────────────────
+const TUBE = { radius: 2.6, height: 14.0, segments: 48 };
+const CEILING_Y = BOX_H + 0.4 + TUBE.height + 0.1;  // ceiling sits just above tube tops
+const TUBE_BOTTOM_Y = BOX_H + 0.4;
+const TUBE_TOP_Y = TUBE_BOTTOM_Y + TUBE.height;
+const TUBE_CENTER_Y = (TUBE_BOTTOM_Y + TUBE_TOP_Y) / 2;
+const TUBE_X_A = -BOX_W / 4;
+const TUBE_X_B =  BOX_W / 4;
+
+function buildTube(xCenter) {
+  // Visual cylinder — open-ended Apple-glass tube
+  const geom = new THREE.CylinderGeometry(TUBE.radius, TUBE.radius, TUBE.height, TUBE.segments, 1, true);
+  // Tube glass — transmissive with chromatic dispersion for the rainbow refraction effect
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    emissive: 0xb8c8d8,
+    emissiveIntensity: 0.06,
+    metalness: 0,
+    roughness: 0.02,
+    transmission: 0.95,
+    thickness: 0.45,             // thicker = more visible refraction
+    ior: 1.52,
+    dispersion: 1.2,             // chromatic dispersion — rainbow edges on refracted light
+    transparent: true,
+    side: THREE.FrontSide,
+    envMapIntensity: 1.4,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(xCenter, TUBE_CENTER_Y, 0);
+  scene.add(mesh);
+
+  // Soft point light INSIDE the tube — lights the tube + falling balls from within (no spillage outside)
+  const innerLight = new THREE.PointLight(0xfff4e0, 6, TUBE.height * 0.9, 1.5);
+  innerLight.position.set(xCenter, TUBE_CENTER_Y, 0);
+  scene.add(innerLight);
+
+  // Polished metal rim caps at top + bottom
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xe0e6ee, metalness: 1, roughness: 0.12, envMapIntensity: 1.5 });
+  for (const yOff of [-TUBE.height/2 - 0.05, TUBE.height/2 + 0.05]) {
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(TUBE.radius, 0.06, 12, 48),
+      rimMat
+    );
+    rim.position.set(xCenter, TUBE_CENTER_Y + yOff, 0);
+    rim.rotation.x = Math.PI / 2;
+    scene.add(rim);
+  }
+  // Junction: just a thin polished chrome ring flush with the ceiling — no lampshade, no socket.
+  const junctionRingMat = new THREE.MeshStandardMaterial({
+    color: 0xd0d8e0, metalness: 1, roughness: 0.22, envMapIntensity: 1.2,
+  });
+  const junction = new THREE.Mesh(
+    new THREE.TorusGeometry(TUBE.radius + 0.05, 0.09, 14, 56),
+    junctionRingMat
+  );
+  junction.position.set(xCenter, TUBE_CENTER_Y + TUBE.height/2 + 0.02, 0);
+  junction.rotation.x = Math.PI / 2;
+  scene.add(junction);
+
+  // Physics: 24-segment polygonal wall. Extended ABOVE the ceiling by 3 units to catch
+  // balls spawned over the ceiling and funnel them into the tube — prevents lateral escape.
+  const N = 24;
+  const colliderExtra = 3.0;
+  const colliderHeight = TUBE.height + colliderExtra;
+  const colliderCenterY = TUBE_CENTER_Y + colliderExtra / 2;
+  for (let i = 0; i < N; i++) {
+    const angle = (i / N) * Math.PI * 2;
+    const cx = xCenter + TUBE.radius * Math.cos(angle);
+    const cz = 0 + TUBE.radius * Math.sin(angle);
+    const chord = 2 * TUBE.radius * Math.sin(Math.PI / N);
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed()
+        .setTranslation(cx, colliderCenterY, cz)
+        .setRotation((() => {
+          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -angle - Math.PI/2);
+          return { x: q.x, y: q.y, z: q.z, w: q.w };
+        })())
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(chord / 2 * 1.02, colliderHeight / 2, 0.08)
+        .setFriction(0.3).setRestitution(0.25),
+      body
+    );
+  }
+  return mesh;
+}
+// Tubes get built after `world` is initialized (see below where RAPIER.init() completes).
+// Back-compat handles for existing color-update code:
+const wireA = { mat: halfA.frameMat };
+const wireB = { mat: halfB.frameMat };
+
+// Floor (subtle, catches shadows)
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0e, roughness: 0.95, metalness: 0.0 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = 0;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Big ghost text behind balls per side
+const textGroup = new THREE.Group();
+scene.add(textGroup);
+let textMeshA, textMeshB;
+function makeGhostText(label, color, xOffset) {
+  const c = document.createElement('canvas');
+  c.width = 2048; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  const hex = `#${color.toString(16).padStart(6,'0')}`;
+  // Auto-fit font size to canvas
+  let fs = 360;
+  ctx.font = `700 ${fs}px "Space Grotesk", sans-serif`;
+  while (ctx.measureText(label.toUpperCase()).width > c.width - 80 && fs > 80) {
+    fs -= 20; ctx.font = `700 ${fs}px "Space Grotesk", sans-serif`;
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Outer glow
+  ctx.shadowColor = hex;
+  ctx.shadowBlur = 60;
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = hex;
+  ctx.strokeText(label.toUpperCase(), c.width / 2, c.height / 2);
+  // Inner sharper outline
+  ctx.shadowBlur = 12;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#ffffff';
+  ctx.globalAlpha = 0.45;
+  ctx.strokeText(label.toUpperCase(), c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(BOX_W / 2 * 0.96, BOX_W / 2 * 0.96 / 4), mat);
+  mesh.position.set(xOffset, BOX_H * 0.62, -BOX_D / 2 + 0.15);
+  return mesh;
+}
+function setGhostText(labelA, labelB, colorA, colorB) {
+  if (textMeshA) { textGroup.remove(textMeshA); textMeshA.material.map.dispose(); textMeshA.material.dispose(); }
+  if (textMeshB) { textGroup.remove(textMeshB); textMeshB.material.map.dispose(); textMeshB.material.dispose(); }
+  textMeshA = makeGhostText(labelA, colorA, -BOX_W / 4);
+  textMeshB = makeGhostText(labelB, colorB,  BOX_W / 4);
+  textGroup.add(textMeshA, textMeshB);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GLB / GLTF ASSETS — preloaded in background
+// ─────────────────────────────────────────────────────────────────────
+// Per-sport size multipliers (1.0 = BALL_R baseline). Soccer/crypto bigger; oil = drum (tall) sized separately.
+const SIZE_MULT = { basketball: 1.45, soccer: 1.45, crypto: 1.55 };
+
+let oildrumProto = null;
+let soccerProto = null;
+let basketballProto = null;
+let bitcoinProto = null;
+let basketballScale = 1;
+let soccerScale = 1;
+let bitcoinScale = 1;
+let bitcoinHalfHeight = 0.1;
+let bitcoinRadius = BALL_R * SIZE_MULT.crypto;
+let oildrumScale = 1;
+let oildrumHalfH = 1;
+let oildrumRadius = 0.5;
+
+function loadGLBMesh(url, opts = {}) {
+  return new Promise((resolve) => {
+    new GLTFLoader().load(url, (gltf) => {
+      const root = gltf.scene;
+      if (opts.asGroup) {
+        // Multi-mesh asset (e.g. multi-panel soccer ball) — return the whole group, re-centered to origin.
+        const bbox = new THREE.Box3().setFromObject(root);
+        const cx = (bbox.max.x + bbox.min.x) / 2;
+        const cy = (bbox.max.y + bbox.min.y) / 2;
+        const cz = (bbox.max.z + bbox.min.z) / 2;
+        root.traverse(o => {
+          if (o.isMesh && o.geometry) {
+            o.geometry.translate(-cx, -cy, -cz);
+            o.geometry.computeBoundingSphere();
+          }
+        });
+        // Compute group bounding radius for auto-scaling
+        let maxR = 0;
+        root.traverse(o => {
+          if (o.isMesh && o.geometry?.boundingSphere) {
+            const c = o.geometry.boundingSphere.center;
+            const r = o.geometry.boundingSphere.radius;
+            maxR = Math.max(maxR, Math.sqrt(c.x*c.x + c.y*c.y + c.z*c.z) + r);
+          }
+        });
+        root.userData.boundingRadius = maxR;
+        resolve(root);
+        return;
+      }
+      let meshSrc = null;
+      root.traverse(o => {
+        if (!o.isMesh) return;
+        if (opts.meshName) { if (o.name === opts.meshName) meshSrc = o; return; }
+        if (!meshSrc) meshSrc = o;
+      });
+      if (!meshSrc) { resolve(null); return; }
+      meshSrc.geometry.computeBoundingBox();
+      const bb = meshSrc.geometry.boundingBox;
+      const cy = (bb.max.y + bb.min.y) / 2;
+      meshSrc.geometry.translate(-(bb.max.x+bb.min.x)/2, -cy, -(bb.max.z+bb.min.z)/2);
+      resolve(meshSrc);
+    }, undefined, (err) => { console.warn('glb load', url, err); resolve(null); });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SCOREBOARD — built manually from primitives (no GLB needed)
+// ─────────────────────────────────────────────────────────────────────
+let scoreboardScreenMat = null;
+let scoreboardCanvas = null;
+// Ticker strip — separate canvas + texture that scrolls via UV offset (cheap, no per-frame canvas re-upload)
+let tickerSourceCanvas = null;
+let tickerTex = null;
+let tickerStripWidth = 1; let tickerStripHeight = 1; let tickerPlaneAspect = 1;
+
+function buildScoreboardCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 1920; c.height = 800;
+  scoreboardCanvas = c;
+  return c;
+}
+
+// Render text as a true LED dot-matrix grid — each pixel is a discrete circular dot,
+// off-pixels show a dim grey dot so the grid stays visible (stadium-board look).
+function dotMatrixText(text, { fontSize = 200, color = '#00ff66', cell = 8, dotRadius = 3, weight = 800, offAlpha = 0.06, letterSpacing = '-0.06em' }) {
+  // Render the text into a temp canvas at native pixel sampling resolution
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = `${weight} ${fontSize}px "JetBrains Mono", monospace`;
+  if ('letterSpacing' in measure) measure.letterSpacing = letterSpacing;
+  const textW = Math.ceil(measure.measureText(text).width);
+  const padX = 8;
+  const tw = textW + padX * 2;
+  const th = Math.ceil(fontSize * 1.1);
+  const temp = document.createElement('canvas');
+  temp.width = tw; temp.height = th;
+  const tctx = temp.getContext('2d');
+  tctx.font = measure.font;
+  if ('letterSpacing' in tctx) tctx.letterSpacing = letterSpacing;
+  tctx.fillStyle = '#fff';
+  tctx.textBaseline = 'middle';
+  tctx.textAlign = 'left';
+  tctx.fillText(text, padX, th / 2);
+  const data = tctx.getImageData(0, 0, tw, th).data;
+
+  // Quantize to dot grid
+  const cols = Math.floor(tw / cell);
+  const rows = Math.floor(th / cell);
+  const out = document.createElement('canvas');
+  out.width = cols * cell;
+  out.height = rows * cell;
+  const ctx = out.getContext('2d');
+
+  // Off-dot pass first (background grid)
+  ctx.fillStyle = `rgba(180, 200, 220, ${offAlpha})`;
+  for (let r = 0; r < rows; r++) {
+    for (let cIdx = 0; cIdx < cols; cIdx++) {
+      ctx.beginPath();
+      ctx.arc(cIdx * cell + cell/2, r * cell + cell/2, dotRadius * 0.85, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+  // On-dot pass (sample the text alpha at each cell center)
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = dotRadius * 1.4;
+  for (let r = 0; r < rows; r++) {
+    for (let cIdx = 0; cIdx < cols; cIdx++) {
+      const sx = Math.min(tw - 1, cIdx * cell + (cell >> 1));
+      const sy = Math.min(th - 1, r * cell + (cell >> 1));
+      const idx = (sy * tw + sx) * 4 + 3; // alpha channel
+      if (data[idx] > 110) {
+        ctx.beginPath();
+        ctx.arc(cIdx * cell + cell/2, r * cell + cell/2, dotRadius, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.shadowBlur = 0;
+  return out;
+}
+
+// 3-letter team / country abbreviations
+const TEAM_ABBR_NBA = {
+  thunder:'OKC', knicks:'NYK', spurs:'SAS', lakers:'LAL', warriors:'GSW', celtics:'BOS',
+  nuggets:'DEN', heat:'MIA', bucks:'MIL', mavericks:'DAL', sixers:'PHI', '76ers':'PHI',
+  suns:'PHX', clippers:'LAC', timberwolves:'MIN', wolves:'MIN', pacers:'IND',
+  cavaliers:'CLE', cavs:'CLE', magic:'ORL', hawks:'ATL', bulls:'CHI', rockets:'HOU',
+  kings:'SAC', pelicans:'NOP', grizzlies:'MEM', jazz:'UTA', 'trail blazers':'POR',
+  blazers:'POR', raptors:'TOR', pistons:'DET', wizards:'WAS', hornets:'CHA', nets:'BKN',
+};
+const COUNTRY_ABBR = {
+  mexico:'MEX', 'south africa':'RSA', 'south korea':'KOR', 'korea republic':'KOR',
+  czechia:'CZE', 'united states':'USA', usa:'USA', canada:'CAN',
+  spain:'ESP', france:'FRA', england:'ENG', germany:'GER', italy:'ITA', portugal:'POR',
+  netherlands:'NED', belgium:'BEL', croatia:'CRO', morocco:'MAR', japan:'JPN',
+  australia:'AUS', uruguay:'URU', colombia:'COL', switzerland:'SUI', denmark:'DEN',
+  senegal:'SEN', poland:'POL', iran:'IRN', ghana:'GHA', ecuador:'ECU', serbia:'SRB',
+  tunisia:'TUN', wales:'WAL', qatar:'QAT', 'costa rica':'CRC', cameroon:'CMR',
+  brazil:'BRA', argentina:'ARG', paraguay:'PAR', luxembourg:'LUX', gambia:'GAM',
+};
+function getAbbr(name) {
+  if (!name) return '—';
+  const k = name.toLowerCase().trim();
+  if (TEAM_ABBR_NBA[k]) return TEAM_ABBR_NBA[k];
+  if (COUNTRY_ABBR[k]) return COUNTRY_ABBR[k];
+  for (const key of Object.keys(TEAM_ABBR_NBA)) if (k.includes(key)) return TEAM_ABBR_NBA[key];
+  for (const key of Object.keys(COUNTRY_ABBR)) if (k.includes(key)) return COUNTRY_ABBR[key];
+  if (k === 'up') return 'UP';
+  if (k === 'down') return 'DWN';
+  if (k === 'yes') return 'YES';
+  if (k === 'no') return 'NO';
+  const words = name.split(/\s+/).filter(Boolean);
+  const w = words.reduce((a,b) => a.length >= b.length ? a : b, '');
+  return (w || name).slice(0, 3).toUpperCase();
+}
+
+function paintScoreboard({ nameA, nameB, pctA, pctB, colorA, colorB, sub }) {
+  const c = scoreboardCanvas;
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  // 3 cells side-by-side, all dark — team identity comes from text color
+  const cellW = W / 3;
+  ctx.fillStyle = '#070a0e';
+  ctx.fillRect(0, 0, W, H);
+  // Vertical dividers
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.fillRect(cellW - 1, 28, 2, H - 56);
+  ctx.fillRect(2 * cellW - 1, 28, 2, H - 56);
+
+  // Team text uses the team color directly. For very dark colors, bump toward a brighter tint.
+  const brightenIfDark = (hex) => {
+    const c = new THREE.Color(hex);
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    if (lum < 0.18) {
+      // Pull dark colors toward a brighter HSL value so dot-matrix reads
+      const hsl = { h:0, s:0, l:0 }; c.getHSL(hsl);
+      const out = new THREE.Color().setHSL(hsl.h, Math.max(hsl.s, 0.5), 0.65);
+      return '#' + out.getHexString();
+    }
+    return hex;
+  };
+  const fgA = brightenIfDark(colorA);
+  const fgB = brightenIfDark(colorB);
+  const m = state.market || {};
+  const isCrypto = m.sport === 'crypto';
+  const labelA = isCrypto ? (nameA || 'UP').toUpperCase() : getAbbr(nameA);
+  const labelB = isCrypto ? (nameB || 'DOWN').toUpperCase() : getAbbr(nameB);
+  const labelFont = (labelA.length > 3 || labelB.length > 3) ? 180 : 220;
+  const aAbbrCv = dotMatrixText(labelA, { fontSize: labelFont, cell: 11, dotRadius: 4.4, weight: 800, color: fgA, offAlpha: 0.06 });
+  const bAbbrCv = dotMatrixText(labelB, { fontSize: labelFont, cell: 11, dotRadius: 4.4, weight: 800, color: fgB, offAlpha: 0.06 });
+  const aPctCv = dotMatrixText(`${Math.round(pctA*100)}%`, { fontSize: 200, cell: 11, dotRadius: 4.2, weight: 800, color: fgA, offAlpha: 0.06 });
+  const bPctCv = dotMatrixText(`${Math.round(pctB*100)}%`, { fontSize: 200, cell: 11, dotRadius: 4.2, weight: 800, color: fgB, offAlpha: 0.06 });
+
+  const drawCenteredFit = (img, cx, cy, maxW) => {
+    const s = Math.min(1, (maxW - 24) / img.width);
+    ctx.drawImage(img, cx - (img.width*s)/2, cy - (img.height*s)/2, img.width*s, img.height*s);
+  };
+  const aStackH = aAbbrCv.height + aPctCv.height + 30;
+  const aTop = H/2 - aStackH/2;
+  drawCenteredFit(aAbbrCv, cellW/2, aTop + aAbbrCv.height/2, cellW);
+  drawCenteredFit(aPctCv, cellW/2, aTop + aAbbrCv.height + 30 + aPctCv.height/2, cellW);
+  const bStackH = bAbbrCv.height + bPctCv.height + 30;
+  const bTop = H/2 - bStackH/2;
+  drawCenteredFit(bAbbrCv, 5*cellW/2, bTop + bAbbrCv.height/2, cellW);
+  drawCenteredFit(bPctCv, 5*cellW/2, bTop + bAbbrCv.height + 30 + bPctCv.height/2, cellW);
+
+  // Middle cell — countdown / date
+  let topLine = '', bottomLine = '';
+  if (m.endDate) {
+    const end = new Date(m.endDate);
+    const ms = end.getTime() - Date.now();
+    if (m.isUpDown && ms > 0) {
+      const mm = Math.floor(ms / 60000);
+      const ss = Math.floor((ms % 60000) / 1000);
+      topLine = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+      bottomLine = 'RESOLVES';
+    } else if (ms > 24*3600*1000) {
+      topLine = end.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }).toUpperCase();
+      bottomLine = end.toLocaleString(undefined, { weekday: 'short' }).toUpperCase();
+    } else if (ms > 0) {
+      const hh = Math.floor(ms / 3600000);
+      const mm = Math.floor((ms % 3600000) / 60000);
+      topLine = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+      bottomLine = 'TO TIPOFF';
+    } else {
+      topLine = 'LIVE'; bottomLine = 'NOW';
+    }
+  } else {
+    topLine = (sub || 'VS').toUpperCase().slice(0, 8);
+  }
+  const midTopOpts = { fontSize: 120, cell: 7, dotRadius: 2.6, weight: 800, color: '#ffffff' };
+  const midBotOpts = { fontSize: 56, cell: 4, dotRadius: 1.6, weight: 600, color: '#8a93a3' };
+  const midTopCv = dotMatrixText(topLine || ' ', midTopOpts);
+  const midBotCv = bottomLine ? dotMatrixText(bottomLine, midBotOpts) : null;
+  const midStackH = midTopCv.height + (midBotCv ? midBotCv.height + 22 : 0);
+  const midTop = H/2 - midStackH/2;
+  drawCenteredFit(midTopCv, W/2, midTop + midTopCv.height/2, cellW);
+  if (midBotCv) drawCenteredFit(midBotCv, W/2, midTop + midTopCv.height + 22 + midBotCv.height/2, cellW);
+
+  if (scoreboardScreenMat?.map) scoreboardScreenMat.map.needsUpdate = true;
+}
+
+function mountScoreboard() {
+  const group = new THREE.Group();
+
+  // Body — courtside-LED stance with brushed-metal chassis
+  const bodyW = 11, bodyH = 3.4, bodyD = 0.6;
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x12161e, metalness: 0.85, roughness: 0.35 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyMat);
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  // Polished chrome bezel — bright, low-roughness frame
+  const bezelMat = new THREE.MeshStandardMaterial({ color: 0xe6ecf2, metalness: 1.0, roughness: 0.12, envMapIntensity: 1.6 });
+  const bz = 0.22;
+  const front = bodyD / 2 + 0.01;
+  const mkBar = (w, h, x, y) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, bz * 1.4), bezelMat);
+    m.position.set(x, y, front);
+    group.add(m);
+  };
+  mkBar(bodyW, bz, 0,  bodyH/2 - bz/2);
+  mkBar(bodyW, bz, 0, -bodyH/2 + bz/2);
+  mkBar(bz, bodyH, -bodyW/2 + bz/2, 0);
+  mkBar(bz, bodyH,  bodyW/2 - bz/2, 0);
+  // Corner caps for a more refined finish
+  for (const [x, y] of [[-1,-1],[1,-1],[-1,1],[1,1]]) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(bz*1.4, bz*1.4, bz*1.5), bezelMat);
+    cap.position.set(x * (bodyW/2 - bz/2), y * (bodyH/2 - bz/2), front);
+    group.add(cap);
+  }
+
+  // Screen — main LED panel (ticker hidden for now → screen fills full height)
+  const canvas = buildScoreboardCanvas();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  scoreboardScreenMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, toneMapped: false });
+  const screenW = bodyW - bz * 2 - 0.08;
+  const screenH = bodyH - bz * 2 - 0.08;
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(screenW, screenH), scoreboardScreenMat);
+  screen.position.set(0, 0, front + 0.04);
+  group.add(screen);
+  // Ticker plumbing kept in memory (tickerSourceCanvas/tickerTex used by paintTickerStrip)
+  // but no plane mesh is added to the scene — easy to re-enable later by restoring this block.
+  tickerSourceCanvas = document.createElement('canvas');
+  tickerSourceCanvas.width = 2048; tickerSourceCanvas.height = 200;
+  tickerTex = null;
+
+  // Floor stand legs — gives the "sitting on the floor in front of the boxes" feel
+  const standMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, metalness: 0.9, roughness: 0.45 });
+  for (const dx of [-bodyW * 0.35, bodyW * 0.35]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.5, bodyH * 0.5, 0.5), standMat);
+    leg.position.set(dx, -bodyH/2 - bodyH*0.25, 0);
+    group.add(leg);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.2, 1.0), standMat);
+    foot.position.set(dx, -bodyH/2 - bodyH*0.5 + 0.1, 0);
+    group.add(foot);
+  }
+
+  // On the floor, in front of the boxes — feet at y=0, scoreboard well clear of boxes
+  const standHalfHeight = bodyH * 0.4;
+  const yCenter = bodyH/2 + standHalfHeight + 0.1;
+  group.position.set(0, yCenter, BOX_D / 2 + 7);
+  scene.add(group);
+
+  if (state.market) updateScoreboard();
+}
+
+function updateScoreboard() {
+  if (!scoreboardScreenMat || !state.market) return;
+  const m = state.market;
+  paintScoreboard({
+    nameA: m.outcomes[0],
+    nameB: m.outcomes[1],
+    pctA: state.oddsA ?? m.prices[0] ?? 0.5,
+    pctB: state.oddsB ?? m.prices[1] ?? 0.5,
+    colorA: state.colorA || '#ffffff',
+    colorB: state.colorB || '#ffffff',
+    sub: m.eventTitle || '',
+  });
+}
+
+async function loadAssetsBackground() {
+  const [j, s, b, c] = await Promise.all([
+    loadGLBMesh('/ballpit/assets/oildrum.glb'),
+    loadGLBMesh('/ballpit/assets/football.glb'),
+    loadGLBMesh('/ballpit/assets/basketball.glb'),
+    loadGLBMesh('/ballpit/assets/bitcoin.glb'),
+  ]);
+  oildrumProto = j;
+  soccerProto = s;
+  basketballProto = b;
+  bitcoinProto = c;
+  if (b) {
+    b.geometry.computeBoundingSphere();
+    basketballScale = (BALL_R * SIZE_MULT.basketball) / b.geometry.boundingSphere.radius;
+  }
+  if (s) {
+    s.geometry.computeBoundingSphere();
+    soccerScale = (BALL_R * SIZE_MULT.soccer) / s.geometry.boundingSphere.radius;
+  }
+  if (c) {
+    c.geometry.computeBoundingBox();
+    const bb = c.geometry.boundingBox;
+    const rRaw = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+    bitcoinRadius = BALL_R * SIZE_MULT.crypto;
+    bitcoinScale = bitcoinRadius / rRaw;
+    bitcoinHalfHeight = (bb.max.y - bb.min.y) / 2 * bitcoinScale;
+  }
+  if (j) {
+    // Orient drum upright (tallest axis → Y) then scale so it sits ~3 units tall in the box.
+    j.geometry.computeBoundingBox();
+    let bb = j.geometry.boundingBox;
+    const dimX = bb.max.x - bb.min.x;
+    const dimY = bb.max.y - bb.min.y;
+    const dimZ = bb.max.z - bb.min.z;
+    if (dimZ > dimY && dimZ > dimX) j.geometry.rotateX(-Math.PI / 2);
+    else if (dimX > dimY && dimX > dimZ) j.geometry.rotateZ(Math.PI / 2);
+    j.geometry.computeBoundingBox();
+    bb = j.geometry.boundingBox;
+    // Re-center after rotation so origin = mesh centroid
+    const cy = (bb.max.y + bb.min.y) / 2;
+    j.geometry.translate(-(bb.max.x + bb.min.x)/2, -cy, -(bb.max.z + bb.min.z)/2);
+    j.geometry.computeBoundingBox();
+    bb = j.geometry.boundingBox;
+    const nh = bb.max.y - bb.min.y;
+    const nr = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+    // Cap scale by tube fit — drum diameter must be ≤ 60% of tube diameter so 2 can pass side-by-side
+    const maxRadiusInTube = TUBE.radius * 0.6;       // ~1.56 with radius 2.6
+    const heightScale = 2.2 / nh;
+    const radiusScale = maxRadiusInTube / nr;
+    oildrumScale = Math.min(heightScale, radiusScale);
+    oildrumHalfH = (nh / 2) * oildrumScale;
+    oildrumRadius = nr * oildrumScale;
+  }
+  return { j: !!j, s: !!s, b: !!b, c: !!c };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// RAPIER PHYSICS
+// ─────────────────────────────────────────────────────────────────────
+await RAPIER.init();
+const gravity = { x: 0, y: -22, z: 0 };
+const world = new RAPIER.World(gravity);
+// Bump solver iterations so dense ball stacks settle cleanly without floaters
+world.integrationParameters.numSolverIterations = 12;
+world.integrationParameters.numAdditionalFrictionIterations = 6;
+// Now that the world exists, build the funnel tubes (they create static colliders)
+buildTube(TUBE_X_A);
+buildTube(TUBE_X_B);
+
+// ── Ceiling — oversized dark metallic panel so it covers the frame on wide monitors
+{
+  const ceilW = 120, ceilD = 80, ceilT = 0.4;
+  const ceilMat = new THREE.MeshStandardMaterial({
+    color: 0x14171f, metalness: 0.9, roughness: 0.45, side: THREE.DoubleSide,
+  });
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ceilW, ceilT, ceilD), ceilMat);
+  ceiling.position.set(0, CEILING_Y, 0);
+  scene.add(ceiling);
+  // Polished chrome trim on the bottom face
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xe0e6ee, metalness: 1, roughness: 0.18 });
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(ceilW, 0.05, ceilD), trimMat);
+  trim.position.set(0, CEILING_Y - 0.22, 0);
+  scene.add(trim);
+  // Ceiling physics with HOLES at each tube position — 3 strips along X so balls fall through tubes only
+  const gap = TUBE.radius + 0.25;
+  const ranges = [
+    [-ceilW/2, TUBE_X_A - gap],
+    [TUBE_X_A + gap, TUBE_X_B - gap],
+    [TUBE_X_B + gap, ceilW/2],
+  ];
+  for (const [a, b] of ranges) {
+    if (b - a < 0.1) continue;
+    const stripW = b - a;
+    const stripCx = (a + b) / 2;
+    const sb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(stripCx, CEILING_Y, 0));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(stripW/2, ceilT/2, ceilD/2).setFriction(0.4), sb);
+  }
+
+  // (Ceiling spotlights removed — they were creating bright cones above the tubes.)
+}
+const eventQueue = new RAPIER.EventQueue(true);
+
+// Static walls for both halves. Trapdoor = the floor segment of each half (kinematic so we can swing it).
+function staticBox(x, y, z, hx, hy, hz) {
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z));
+  const col = world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.4).setRestitution(0.35), body);
+  return { body, col };
+}
+
+// Outer walls (4 sides) + ceiling open. Center divider.
+const halfW = BOX_W / 2 / 2; // half-extent of one half on X = BOX_W/4
+const halfD = BOX_D / 2;
+const halfH = BOX_H / 2;
+// Slightly thicker physics walls (still inside visual frame) so fast spawns can't tunnel through them.
+const WT = 0.35;
+const WALL_HY = halfH + 0.6;   // wall extends above box-top to catch fly-outs from spawn
+const WALL_OFFSET_Y = WALL_HY; // center so the wall starts at y=0
+
+// Left half walls
+staticBox(-BOX_W / 2,         WALL_OFFSET_Y, 0, WT, WALL_HY, halfD); // outer left
+staticBox(-BOX_W / 4,         WALL_OFFSET_Y,  halfD, halfW, WALL_HY, WT); // front
+staticBox(-BOX_W / 4,         WALL_OFFSET_Y, -halfD, halfW, WALL_HY, WT); // back
+// Right half walls
+staticBox( BOX_W / 2,         WALL_OFFSET_Y, 0, WT, WALL_HY, halfD);
+staticBox( BOX_W / 4,         WALL_OFFSET_Y,  halfD, halfW, WALL_HY, WT);
+staticBox( BOX_W / 4,         WALL_OFFSET_Y, -halfD, halfW, WALL_HY, WT);
+// Center divider (between halves)
+staticBox(0, WALL_OFFSET_Y, 0, WT, WALL_HY, halfD);
+
+// Hard visible floor just below the box bottom — escaped balls bounce on it instead of disappearing
+{
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.3, 0));
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(80, 0.3, 60)
+      .setFriction(0.5).setRestitution(0.45),
+    body
+  );
+}
+
+// TRAPDOOR FLOORS — kinematic, hinged at outer edge
+// Each trapdoor is a slab the size of one half-floor
+class Trapdoor {
+  constructor(side) {
+    // side: -1 left, +1 right
+    this.side = side;
+    this.cx = side * BOX_W / 4;   // center X of slab
+    this.hx = halfW;
+    this.hz = halfD;
+    this.y = 0;
+    this.angle = 0;
+    this.targetAngle = 0;
+    this.openUntil = 0;
+    this.pivotX = side * (BOX_W / 2); // hinge at outer wall
+    this.body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.cx, this.y, 0)
+    );
+    this.col = world.createCollider(
+      RAPIER.ColliderDesc.cuboid(this.hx, 0.1, this.hz).setFriction(0.6).setRestitution(0.2),
+      this.body
+    );
+  }
+  open(durationMs = 700) {
+    this.targetAngle = this.side * Math.PI / 2.4; // swing down/outward
+    this.openUntil = performance.now() + durationMs;
+  }
+  update(dt) {
+    if (performance.now() > this.openUntil) this.targetAngle = 0;
+    // simple lerp
+    this.angle += (this.targetAngle - this.angle) * Math.min(1, dt * 6);
+    // Rotate around pivot at outer X: compute translation + rotation
+    // Slab center moves on an arc around pivotX
+    const r = Math.abs(this.cx - this.pivotX); // = halfW
+    const sgn = this.side;
+    const newX = this.pivotX - sgn * r * Math.cos(this.angle);
+    const newY = -r * Math.sin(Math.abs(this.angle));
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -this.angle * sgn);
+    this.body.setNextKinematicTranslation({ x: newX, y: newY, z: 0 });
+    this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+    // Mirror visual
+    if (this.mesh) {
+      this.mesh.position.set(newX, newY, 0);
+      this.mesh.quaternion.copy(q);
+    }
+  }
+  attachVisual() {
+    const g = new THREE.BoxGeometry(this.hx * 2, 0.2, this.hz * 2);
+    const m = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.8, metalness: 0.2 });
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.receiveShadow = true;
+    scene.add(this.mesh);
+  }
+}
+const trapL = new Trapdoor(-1); trapL.attachVisual();
+const trapR = new Trapdoor( 1); trapR.attachVisual();
+
+// ─────────────────────────────────────────────────────────────────────
+// BALL FACTORY — sport-specific procedural textures
+// ─────────────────────────────────────────────────────────────────────
+function basketballTexture(primary, secondary) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const ctx = c.getContext('2d');
+  // Base split: left half primary, right half secondary
+  ctx.fillStyle = primary; ctx.fillRect(0, 0, 512, 512);
+  ctx.fillStyle = secondary; ctx.fillRect(512, 0, 512, 512);
+  // Panel seams
+  ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(0, 256); ctx.lineTo(1024, 256); ctx.stroke();
+  for (let i = 0; i < 8; i++) {
+    const x = (i / 8) * 1024;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 512); ctx.stroke();
+  }
+  ctx.lineWidth = 6;
+  for (let i = 0; i < 8; i++) {
+    const x = (i / 8) * 1024 + 64;
+    ctx.beginPath();
+    ctx.arc(x, 256, 110, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function bitcoinCoinTexture(side) {
+  // Flat coin face — gold field with bitcoin glyph
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  // Radial gold gradient
+  const g = ctx.createRadialGradient(256, 200, 40, 256, 256, 256);
+  g.addColorStop(0, '#fff6c2');
+  g.addColorStop(0.5, '#f5c842');
+  g.addColorStop(1, '#a17712');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(256, 256, 248, 0, Math.PI*2); ctx.fill();
+  // Inner ring
+  ctx.strokeStyle = 'rgba(80,50,0,0.5)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(256, 256, 210, 0, Math.PI*2); ctx.stroke();
+  // Bitcoin ₿ glyph
+  ctx.fillStyle = '#f7931a';
+  ctx.font = '700 320px Georgia, serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('₿', 256, 270);
+  // Subtle edge shadow
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.arc(256, 256, 246, 0, Math.PI*2); ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function footballTexture(primary, secondary) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = primary; ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = secondary; ctx.fillRect(256, 0, 256, 256);
+  // White laces in center stripe
+  ctx.fillStyle = '#f8f8f0';
+  ctx.fillRect(0, 116, 512, 24);
+  ctx.fillStyle = '#0a0a0a';
+  for (let i = 0; i < 12; i++) {
+    const x = 40 + i * 36;
+    ctx.fillRect(x, 122, 8, 12);
+  }
+  // Subtle pebble texture
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  for (let i = 0; i < 600; i++) {
+    ctx.fillRect(Math.random()*512, Math.random()*256, 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Geometry per sport
+const sphereGeom = new THREE.SphereGeometry(BALL_R, 28, 20);
+const coinGeom = new THREE.CylinderGeometry(BALL_R * 0.95, BALL_R * 0.95, BALL_R * 0.35, 36);
+
+// Collect all geometries shared with prototype assets — these must NOT be disposed per-instance
+function isSharedGeometry(geom) {
+  if (!geom) return true;
+  if (geom === sphereGeom || geom === coinGeom) return true;
+  if (geom === oildrumProto?.geometry) return true;
+  if (geom === basketballProto?.geometry) return true;
+  if (geom === bitcoinProto?.geometry) return true;
+  if (geom === soccerProto?.geometry) return true;
+  return false;
+}
+
+function disposeBallMesh(node) {
+  if (Array.isArray(node.material)) {
+    for (const m of node.material) { m.map?.dispose(); m.dispose(); }
+  } else if (node.material && !isSharedMaterial(node.material)) {
+    node.material.map?.dispose();
+    node.material.dispose();
+  }
+  if (!isSharedGeometry(node.geometry)) node.geometry.dispose();
+}
+function isSharedMaterial(mat) {
+  return mat === oildrumProto?.material
+      || mat === basketballProto?.material
+      || mat === soccerProto?.material;
+}
+
+function makeBallMesh(sport, primary, secondary) {
+  if (sport === 'oil' && oildrumProto) {
+    const mesh = oildrumProto.clone();
+    mesh.geometry = oildrumProto.geometry;
+    mesh.material = oildrumProto.material;
+    mesh.scale.setScalar(oildrumScale);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  if (sport === 'soccer' && soccerProto) {
+    const mesh = soccerProto.clone();
+    mesh.geometry = soccerProto.geometry;
+    mesh.material = soccerProto.material;
+    mesh.scale.setScalar(soccerScale);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  if (sport === 'basketball' && basketballProto) {
+    const mesh = basketballProto.clone();
+    mesh.geometry = basketballProto.geometry;
+    // Share the original material as-is; color comes from the top neon, no decals/logos.
+    mesh.material = basketballProto.material;
+    mesh.scale.setScalar(basketballScale);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  if (sport === 'crypto') {
+    if (bitcoinProto) {
+      const mesh = bitcoinProto.clone();
+      mesh.geometry = bitcoinProto.geometry;
+      // Clone material once to force-opacify the GLB defaults, but no team tint — neon does that
+      const mat = bitcoinProto.material.clone();
+      mat.transparent = false; mat.depthWrite = true; mat.alphaTest = 0;
+      mesh.material = mat;
+      mesh.scale.setScalar(bitcoinScale);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      return mesh;
+    }
+    // Fallback procedural cylinder
+    const faceTex = bitcoinCoinTexture();
+    const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, metalness: 1.0, roughness: 0.25, emissive: 0x442200, emissiveIntensity: 0.15 });
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0xf5c842, metalness: 1.0, roughness: 0.35, emissive: 0x442200, emissiveIntensity: 0.1 });
+    const mesh = new THREE.Mesh(coinGeom, [sideMat, faceMat, faceMat]);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  if (sport === 'football') {
+    const geom = sphereGeom.clone();
+    geom.scale(0.7, 0.7, 1.15);
+    const tex = footballTexture(primary, secondary);
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.05 });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  // basketball fallback (procedural — only used before basketball.glb finishes loading)
+  const tex = basketballTexture(primary, secondary);
+  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(sphereGeom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BALL POOL — manages physics bodies + meshes per side
+// ─────────────────────────────────────────────────────────────────────
+class Side {
+  constructor(idx, xCenter) {
+    this.idx = idx;
+    this.xCenter = xCenter;
+    this.balls = []; // {body, mesh}
+    this.primary = '#ffffff';
+    this.secondary = '#000000';
+    this.sport = 'basketball';
+  }
+  setStyle(sport, primary, secondary) {
+    this.sport = sport;
+    this.primary = primary;
+    this.secondary = secondary;
+  }
+  spawnBall() {
+    const r = BALL_R * (SIZE_MULT[this.sport] || 1.0);
+    // Spawn INSIDE the funnel tube at the top — ball falls through the glass into the box
+    const tubeInner = Math.max(0.1, TUBE.radius - r - 0.05);
+    const a = Math.random() * Math.PI * 2;
+    const rd = Math.random() * tubeInner * 0.7;
+    const x = this.xCenter + Math.cos(a) * rd;
+    const z = Math.sin(a) * rd;
+    // Spawn ABOVE the ceiling so the ball appears to fall through it — hidden until it enters the tube
+    const y = CEILING_Y + 1.0 + Math.random() * 0.6;
+    // Higher damping for flat/stackable shapes prevents the micro-jitter you see on resting coins/cans
+    const damp = (this.sport === 'crypto' || this.sport === 'oil')
+      ? { lin: 0.45, ang: 0.85 }
+      : { lin: 0.05, ang: 0.15 };
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(x, y, z)
+        .setLinearDamping(damp.lin)
+        .setAngularDamping(damp.ang)
+        .setCanSleep(true)
+        // CCD disabled — too expensive at high body counts. Thicker walls + spawn margin prevent tunneling.
+    );
+    let colDesc;
+    if (this.sport === 'football') {
+      colDesc = RAPIER.ColliderDesc.capsule(BALL_R * 0.45, BALL_R * 0.6);
+    } else if (this.sport === 'crypto') {
+      const halfH = bitcoinProto ? bitcoinHalfHeight : BALL_R * 0.18;
+      colDesc = RAPIER.ColliderDesc.cylinder(halfH, bitcoinRadius * 0.98);
+    } else if (this.sport === 'oil') {
+      // Cylinder collider matches the upright drum profile
+      colDesc = RAPIER.ColliderDesc.cylinder(oildrumHalfH, oildrumRadius * 0.95);
+    } else if (this.sport === 'soccer') {
+      colDesc = RAPIER.ColliderDesc.ball(BALL_R * SIZE_MULT.soccer);
+    } else if (this.sport === 'basketball') {
+      colDesc = RAPIER.ColliderDesc.ball(BALL_R * SIZE_MULT.basketball);
+    } else {
+      colDesc = RAPIER.ColliderDesc.ball(BALL_R);
+    }
+    const friction = (this.sport === 'oil' || this.sport === 'crypto') ? 0.7 : 0.45;
+    const restitution = (this.sport === 'oil' || this.sport === 'crypto') ? 0.1 : 0.55;
+    colDesc.setRestitution(restitution).setFriction(friction).setDensity(1.2);
+    world.createCollider(colDesc, body);
+    const mesh = makeBallMesh(this.sport, this.primary, this.secondary);
+    mesh.position.set(x, y, z);
+    // Spawn animation — tiny → full size over ~280ms with ease-out cubic.
+    // Physics body is full-size from the start; visual mismatch is invisible because the ball
+    // is spawned high above the pile and reaches contact long after the tween finishes.
+    mesh.userData.spawnT = 0;
+    mesh.userData.targetScale = mesh.scale.x;
+    mesh.scale.setScalar(mesh.userData.targetScale * 0.01);
+    // Strong downward kick so balls drop fast through the tube — no growing-in-place feel
+    body.setLinvel({ x: 0, y: -10, z: 0 }, true);
+    // Spheres can tumble freely; coins + drums stay flat-oriented so they don't wedge sideways in the tube
+    if (this.sport === 'soccer' || this.sport === 'football') {
+      body.setAngvel({ x: (Math.random()-0.5)*4, y: (Math.random()-0.5)*4, z: (Math.random()-0.5)*4 }, true);
+    }
+    // No random orientation for crypto/oil — keep them upright so the tube doesn't jam
+    scene.add(mesh);
+    this.balls.push({ body, mesh });
+  }
+  removeRandomBalls(n) {
+    // Mark them for removal — let physics keep them briefly so they fall out of trapdoor
+    // We'll actually destroy them after they fall below y = -8
+    n = Math.min(n, this.balls.length);
+    // Already handled: trapdoor opens, balls fall, cleanup below handles removal
+    // But we also want to limit pool — destroy the *highest* balls? No, gravity does it.
+    // Returning n is fine.
+    return n;
+  }
+  cleanupFallen() {
+    for (let i = this.balls.length - 1; i >= 0; i--) {
+      const b = this.balls[i];
+      const t = b.body.translation();
+      if (t.y < -10) {
+        scene.remove(b.mesh);
+        disposeBallMesh(b.mesh);
+        world.removeRigidBody(b.body);
+        this.balls.splice(i, 1);
+      }
+    }
+  }
+  rebuildAll() {
+    for (const b of this.balls) {
+      scene.remove(b.mesh);
+      disposeBallMesh(b.mesh);
+      world.removeRigidBody(b.body);
+    }
+    this.balls = [];
+  }
+  count() { return this.balls.length; }
+}
+const sideA = new Side(0, -BOX_W / 4);
+const sideB = new Side(1,  BOX_W / 4);
+window.__sides = { sideA, sideB };
+
+// ─────────────────────────────────────────────────────────────────────
+// POLYMARKET DATA LAYER
+// ─────────────────────────────────────────────────────────────────────
+const GAMMA = 'https://gamma-api.polymarket.com';
+
+// Parse maybe-stringified array fields from Gamma
+function parseArr(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
+  return [];
+}
+
+// Heuristic: is this the moneyline market for a game?
+function isMoneyline(market, eventTitle) {
+  const q = (market.question || '').toLowerCase();
+  if (/spread|o\/u|over\/under|first|quarter|half|total|points|assists|rebounds|mvp|td|touchdown|sack/.test(q)) return false;
+  const outs = parseArr(market.outcomes).map(o => String(o).toLowerCase());
+  if (outs.length !== 2) return false;
+  if (outs.some(o => ['yes','no','over','under','draw'].includes(o))) return false;
+  return true;
+}
+
+async function fetchMarkets() {
+  const all = [];
+  for (const f of SPORT_FILTERS) {
+    try {
+      const url = `${GAMMA}/events?closed=false&active=true&limit=80&tag_slug=${f.tag.toLowerCase()}&order=volume24hr&ascending=false`;
+      const r = await fetch(url);
+      const events = await r.json();
+      for (const ev of events) {
+        const title = ev.title || '';
+        // Must be a head-to-head game ("Thunder vs. Spurs", "Chiefs vs Eagles")
+        if (!/\bvs\.?\b/i.test(title)) continue;
+        const ml = (ev.markets || []).find(m => isMoneyline(m, title));
+        if (!ml) continue;
+        const outcomes = parseArr(ml.outcomes);
+        const prices = parseArr(ml.outcomePrices).map(Number);
+        if (outcomes.length !== 2 || prices.length !== 2) continue;
+        if (!prices.every(p => p > 0 && p < 1)) continue;
+        all.push({
+          id: ml.id,
+          eventId: ev.id,
+          question: ml.question,
+          eventTitle: title,
+          sport: f.sport,
+          tag: f.tag,
+          outcomes,
+          prices,
+          slug: ml.slug,
+          endDate: ev.endDate,
+          startDate: ev.startDate,
+          volume: Number(ev.volume24hr || ev.volume || 0),
+        });
+      }
+    } catch (e) { console.warn('Failed sport', f.tag, e); }
+  }
+  // Sort by volume desc
+  all.sort((a, b) => b.volume - a.volume);
+  return all;
+}
+
+async function fetchMarketOdds(id) {
+  try {
+    const r = await fetch(`${GAMMA}/markets/${id}`);
+    const m = await r.json();
+    const prices = parseArr(m.outcomePrices).map(Number);
+    if (prices.length !== 2) return null;
+    return prices;
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TEAM COLOR DICTIONARY (NBA + NFL)
+// ─────────────────────────────────────────────────────────────────────
+const TEAM_COLORS = {
+  // NBA
+  'thunder': ['#007ac1', '#ef3b24'], 'knicks': ['#f58426', '#006bb6'], 'celtics': ['#007a33', '#ba9653'],
+  'lakers': ['#552583', '#fdb927'], 'warriors': ['#1d428a', '#ffc72c'], 'nuggets': ['#0e2240', '#fec524'],
+  'heat': ['#98002e', '#f9a01b'], 'bucks': ['#00471b', '#eee1c6'], 'mavericks': ['#00538c', '#002b5e'],
+  'sixers': ['#006bb6', '#ed174c'], '76ers': ['#006bb6', '#ed174c'], 'suns': ['#1d1160', '#e56020'],
+  'clippers': ['#c8102e', '#1d428a'], 'timberwolves': ['#0c2340', '#236192'],
+  'pacers': ['#002d62', '#fdbb30'], 'cavaliers': ['#860038', '#fdbb30'], 'magic': ['#0077c0', '#c4ced4'],
+  'hawks': ['#e03a3e', '#c1d32f'], 'bulls': ['#ce1141', '#000000'], 'rockets': ['#ce1141', '#c4ced3'],
+  'kings': ['#5a2d81', '#63727a'], 'pelicans': ['#0c2340', '#c8102e'], 'grizzlies': ['#5d76a9', '#12173f'],
+  'spurs': ['#c4ced4', '#000000'], 'jazz': ['#002b5c', '#f9a01b'], 'trail blazers': ['#e03a3e', '#000000'],
+  'blazers': ['#e03a3e', '#000000'], 'raptors': ['#ce1141', '#000000'], 'pistons': ['#c8102e', '#1d42ba'],
+  'wizards': ['#002b5c', '#e31837'], 'hornets': ['#1d1160', '#00788c'], 'nets': ['#000000', '#ffffff'],
+  // NFL
+  'chiefs': ['#e31837', '#ffb612'], 'eagles': ['#004c54', '#a5acaf'], '49ers': ['#aa0000', '#b3995d'],
+  'cowboys': ['#003594', '#869397'], 'ravens': ['#241773', '#9e7c0c'], 'bills': ['#00338d', '#c60c30'],
+  'lions': ['#0076b6', '#b0b7bc'], 'packers': ['#203731', '#ffb612'], 'dolphins': ['#008e97', '#fc4c02'],
+  'jets': ['#125740', '#ffffff'], 'patriots': ['#002a5c', '#c60c30'], 'steelers': ['#ffb612', '#101820'],
+  'bengals': ['#fb4f14', '#000000'], 'browns': ['#311d00', '#ff3c00'], 'colts': ['#002c5f', '#a2aaad'],
+  'texans': ['#03202f', '#a71930'], 'jaguars': ['#101820', '#d7a22a'], 'titans': ['#0c2340', '#4b92db'],
+  'broncos': ['#fb4f14', '#002244'], 'raiders': ['#000000', '#a5acaf'], 'chargers': ['#0080c6', '#ffc20e'],
+  'rams': ['#003594', '#ffa300'], 'seahawks': ['#002244', '#69be28'], 'cardinals': ['#97233f', '#000000'],
+  'vikings': ['#4f2683', '#ffc62f'], 'bears': ['#0b162a', '#c83803'], 'commanders': ['#5a1414', '#ffb612'],
+  'giants': ['#0b2265', '#a71930'], 'saints': ['#d3bc8d', '#101820'], 'buccaneers': ['#d50a0a', '#34302b'],
+  'falcons': ['#a71930', '#000000'], 'panthers': ['#0085ca', '#101820'],
+};
+
+function colorsFor(outcomeName) {
+  const k = outcomeName.toLowerCase().trim();
+  // Try exact match, then any key contained in name
+  if (TEAM_COLORS[k]) return TEAM_COLORS[k];
+  for (const key of Object.keys(TEAM_COLORS)) {
+    if (k.includes(key)) return TEAM_COLORS[key];
+  }
+  // Fallback: hash to a color pair
+  let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
+  const hue = Math.abs(h) % 360;
+  return [`hsl(${hue}, 70%, 50%)`, `hsl(${(hue+30)%360}, 60%, 40%)`];
+}
+
+function hexToInt(c) {
+  if (c.startsWith('#')) return parseInt(c.slice(1), 16);
+  // hsl -> use canvas to resolve
+  const cv = document.createElement('canvas'); cv.width=1; cv.height=1;
+  const ctx = cv.getContext('2d'); ctx.fillStyle = c; ctx.fillRect(0,0,1,1);
+  const d = ctx.getImageData(0,0,1,1).data;
+  return (d[0]<<16) | (d[1]<<8) | d[2];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CONTROLLER — orchestrate market + odds + balls
+// ─────────────────────────────────────────────────────────────────────
+const state = {
+  marketId: null,
+  market: null,
+  oddsA: 0.5,
+  oddsB: 0.5,
+  targetA: 50,
+  targetB: 50,
+  lastA: 50,
+  lastB: 50,
+};
+
+const $input = document.getElementById('market-input');
+const $dropdown = document.getElementById('market-dropdown');
+const $picker = document.getElementById('market-picker');
+const $statusText = { set textContent(_) {} }; // no-op shim
+
+function setHud() {}
+
+// Real Polymarket "X Up or Down" 5-min markets (auto-rotates every 5 min as new window opens)
+async function fetchUpDownLive(asset /* 'Bitcoin' | ... */) {
+  try {
+    const r = await fetch(`${GAMMA}/events?closed=false&active=true&tag_slug=up-or-down&limit=200`);
+    const arr = await r.json();
+    const now = Date.now();
+    // We want the LIVE moving market: prices off 50/50, soonest to resolve. Ignore future-pinned ones.
+    const candidates = arr
+      .filter(e => (e.title || '').toLowerCase().startsWith(asset.toLowerCase()))
+      .filter(e => e.endDate && new Date(e.endDate).getTime() > now)
+      .map(e => {
+        const m = (e.markets || [])[0];
+        const prices = m ? parseArr(m.outcomePrices).map(Number) : [];
+        const moving = prices.length === 2 && Math.abs(prices[0] - 0.5) > 0.005;
+        return { e, m, prices, moving, end: new Date(e.endDate).getTime() };
+      })
+      .filter(c => c.m && c.prices.length === 2 && c.moving);   // strict: only actually-moving events
+    candidates.sort((a, b) => a.end - b.end); // soonest moving first
+    const pick = candidates[0];
+    if (!pick) return null;
+    return {
+      id: pick.m.id,
+      eventId: pick.e.id,
+      eventTitle: pick.e.title,
+      sport: 'crypto',
+      tag: asset.slice(0, 3).toUpperCase(),
+      outcomes: parseArr(pick.m.outcomes),
+      prices: pick.prices,
+      endDate: pick.e.endDate,
+      asset,
+      isUpDown: true,
+    };
+  } catch (e) { console.warn('updown fetch', e); return null; }
+}
+
+// World Cup 2026 — no head-to-head matches live yet, so synthesize "top-2 contenders" from a Group Winner event
+const WC_COUNTRY_COLORS = {
+  'mexico': ['#006847','#ce1126'], 'south korea': ['#003478','#c60c30'], 'czechia': ['#11457e','#d7141a'],
+  'south africa': ['#ffb612','#007749'], 'united states': ['#3c3b6e','#b22234'], 'usa': ['#3c3b6e','#b22234'],
+  'canada': ['#ff0000','#ffffff'], 'mexico (mex)': ['#006847','#ce1126'],
+  'argentina': ['#74acdf','#ffffff'], 'brazil': ['#009c3b','#ffdf00'], 'france': ['#0055a4','#ef4135'],
+  'england': ['#ffffff','#ce1124'], 'germany': ['#000000','#dd0000'], 'spain': ['#aa151b','#f1bf00'],
+  'portugal': ['#006600','#ff0000'], 'netherlands': ['#ae1c28','#21468b'], 'belgium': ['#000000','#fae042'],
+  'italy': ['#0066cc','#ffffff'], 'croatia': ['#171796','#ff0000'], 'morocco': ['#c1272d','#006233'],
+  'japan': ['#bc002d','#ffffff'], 'australia': ['#00843d','#ffcd00'], 'uruguay': ['#0038a8','#fcd116'],
+  'colombia': ['#fcd116','#003893'], 'switzerland': ['#ff0000','#ffffff'], 'denmark': ['#c8102e','#ffffff'],
+  'senegal': ['#00853f','#fdef42'], 'poland': ['#dc143c','#ffffff'], 'iran': ['#239f40','#da0000'],
+  'ghana': ['#006b3f','#fcd116'], 'ecuador': ['#ffd100','#034ea2'], 'serbia': ['#c6363c','#ffffff'],
+  'tunisia': ['#e70013','#ffffff'], 'wales': ['#d30731','#00824a'], 'qatar': ['#8a1538','#ffffff'],
+  'costa rica': ['#002b7f','#ce1126'], 'cameroon': ['#007a5e','#ce1126'],
+};
+// Common soccer club kit colors (Premier League, La Liga, Liga MX, Bundesliga, MLS subset)
+const SOCCER_CLUB_COLORS = {
+  'real madrid': ['#ffffff','#febe10'], 'barcelona': ['#a50044','#004d98'], 'atletico madrid': ['#ce3524','#ffffff'],
+  'manchester united': ['#da291c','#fbe122'], 'manchester city': ['#6cabdd','#1c2c5b'], 'liverpool': ['#c8102e','#00b2a9'],
+  'arsenal': ['#ef0107','#063672'], 'chelsea': ['#034694','#dba111'], 'tottenham': ['#132257','#ffffff'],
+  'newcastle': ['#241f20','#ffffff'], 'aston villa': ['#670e36','#94bee5'], 'west ham': ['#7a263a','#1bb1e7'],
+  'inter milan': ['#010e80','#000000'], 'ac milan': ['#fb090b','#000000'], 'juventus': ['#000000','#ffffff'],
+  'napoli': ['#0c4da2','#ffffff'], 'roma': ['#8e1b1f','#f0bc42'], 'lazio': ['#a8d2e7','#ffffff'],
+  'psg': ['#004170','#da291c'], 'paris saint-germain': ['#004170','#da291c'],
+  'bayern munich': ['#dc052d','#0066b2'], 'borussia dortmund': ['#fde100','#000000'], 'rb leipzig': ['#dd0741','#ffffff'],
+  'club américa': ['#ffe600','#001d4d'], 'club america': ['#ffe600','#001d4d'], 'chivas': ['#c8102e','#ffffff'],
+  'tigres': ['#ffba00','#001f5f'], 'cruz azul': ['#005ba0','#ffffff'],
+  'inter miami': ['#f7b5cd','#231f20'], 'lafc': ['#000000','#c4ad7c'], 'la galaxy': ['#00245d','#fdb913'],
+};
+function soccerColorsFor(name) {
+  const k = (name || '').toLowerCase().trim();
+  if (WC_COUNTRY_COLORS[k]) return WC_COUNTRY_COLORS[k];
+  if (SOCCER_CLUB_COLORS[k]) return SOCCER_CLUB_COLORS[k];
+  for (const key of Object.keys(SOCCER_CLUB_COLORS)) if (k.includes(key)) return SOCCER_CLUB_COLORS[key];
+  for (const key of Object.keys(WC_COUNTRY_COLORS)) if (k.includes(key)) return WC_COUNTRY_COLORS[key];
+  // Hash fallback — high saturation so neon reads
+  let h = 0; for (let i = 0; i < k.length; i++) h = (h*31 + k.charCodeAt(i)) | 0;
+  return [`hsl(${Math.abs(h)%360}, 80%, 55%)`, `hsl(${(Math.abs(h)+30)%360}, 70%, 45%)`];
+}
+const wcColorsFor = soccerColorsFor; // back-compat alias
+// "Will Mexico win on 2026-06-11?" → "Mexico"
+function extractTeamFromWinQ(question) {
+  const m = question.match(/^Will\s+(.+?)\s+win\b/i);
+  return m ? m[1].trim() : null;
+}
+async function fetchWorldCupLive() {
+  try {
+    const r = await fetch(`${GAMMA}/events?closed=false&active=true&tag_slug=fifa-world-cup&limit=80&order=startDate&ascending=true`);
+    const arr = await r.json();
+    const now = Date.now();
+    // Real head-to-head matches: title has "vs"; end in the future
+    const games = arr
+      .filter(e => /\bvs\.?\b/i.test(e.title || ''))
+      .filter(e => e.endDate && new Date(e.endDate).getTime() > now)
+      .sort((a, b) => new Date(a.endDate) - new Date(b.endDate));
+    if (!games.length) return null;
+    const ev = games[0];
+    // Parse "Will X win on ...?" markets — one per team
+    const teamYes = {};
+    for (const m of (ev.markets || [])) {
+      const t = extractTeamFromWinQ(m.question || '');
+      if (!t) continue;
+      const prices = parseArr(m.outcomePrices).map(Number);
+      if (prices.length !== 2) continue;
+      teamYes[t] = { price: prices[0], id: m.id };
+    }
+    // Title format: "Mexico vs. South Africa"
+    const titleMatch = (ev.title || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+    if (!titleMatch) return null;
+    const teamAName = titleMatch[1].trim();
+    const teamBName = titleMatch[2].trim();
+    const tA = teamYes[teamAName], tB = teamYes[teamBName];
+    if (!tA || !tB) return null;
+    // Normalize ignoring draw probability so the two-box represents win-conditional odds
+    const sum = tA.price + tB.price;
+    const pA = sum > 0 ? tA.price / sum : 0.5;
+    const pB = sum > 0 ? tB.price / sum : 0.5;
+    return {
+      id: `wc-${ev.id}`,
+      eventId: ev.id,
+      eventTitle: ev.title,
+      sport: 'soccer',
+      tag: 'WC26',
+      outcomes: [teamAName, teamBName],
+      prices: [pA, pB],
+      rawYes: [tA.price, tB.price],
+      endDate: ev.endDate,
+      startDate: ev.startDate,
+      slug: ev.slug,
+      isWorldCup: true,
+    };
+  } catch (e) { console.warn('wc fetch', e); return null; }
+}
+const wcMarketStub = {
+  id: 'wc-stub',
+  eventTitle: 'World Cup 2026 · next upcoming match',
+  sport: 'soccer',
+  tag: 'WC26',
+  outcomes: ['Team A', 'Team B'],
+  prices: [0.5, 0.5],
+  isWorldCup: true,
+};
+
+// Crude Oil — picks the most-active strike near 50/50 from the cl-hit-jun-2026 event
+async function fetchCrudeOilLive() {
+  try {
+    const r = await fetch(`${GAMMA}/events?slug=cl-hit-jun-2026`);
+    const arr = await r.json();
+    const ev = arr[0];
+    if (!ev) return null;
+    const candidates = (ev.markets || [])
+      .map(m => {
+        const prices = parseArr(m.outcomePrices).map(Number);
+        const outcomes = parseArr(m.outcomes);
+        const vol = Number(m.volume24hr || m.volume || 0);
+        return { m, prices, outcomes, vol };
+      })
+      .filter(c => c.prices.length === 2 && c.prices[0] > 0.04 && c.prices[0] < 0.96)
+      .sort((a, b) => Math.abs(0.5 - a.prices[0]) - Math.abs(0.5 - b.prices[0]) || b.vol - a.vol);
+    const pick = candidates[0];
+    if (!pick) return null;
+    // Strip "Will Crude Oil (CL) hit " prefix for a cleaner title
+    const q = (pick.m.question || '').replace(/^Will Crude Oil \(CL\) hit\s*/i, 'CL ').replace(/\?$/, '');
+    return {
+      id: pick.m.id,
+      eventId: ev.id,
+      eventTitle: q,
+      sport: 'oil',
+      tag: 'OIL',
+      outcomes: pick.outcomes,
+      prices: pick.prices,
+      endDate: ev.endDate,
+      isOilStrike: true,
+    };
+  } catch (e) { console.warn('oil fetch', e); return null; }
+}
+const oilMarketStub = {
+  id: 'oil-cl-jun',
+  eventTitle: 'Crude Oil · CL Jun strikes',
+  sport: 'oil',
+  tag: 'OIL',
+  outcomes: ['Yes', 'No'],
+  prices: [0.5, 0.5],
+  isOilStrike: true,
+};
+
+// Placeholder shown in the dropdown until first fetch resolves
+const btcMarketStub = {
+  id: 'updown-btc',
+  eventTitle: 'BTC ⬆ vs ⬇ · Hourly (Polymarket)',
+  sport: 'crypto',
+  tag: 'BTC',
+  outcomes: ['Up', 'Down'],
+  prices: [0.5, 0.5],
+  isUpDown: true,
+  asset: 'Bitcoin',
+};
+
+// ── Searchable market picker
+const marketRegistry = []; // {tag, title, market, sub}
+let searchAbort = null;
+
+async function resolveStub(m) {
+  if (m.isUpDown && m.id.startsWith('updown-')) return (await fetchUpDownLive(m.asset)) || m;
+  if (m.isOilStrike && m.id === 'oil-cl-jun') return (await fetchCrudeOilLive()) || m;
+  if (m.isWorldCup && m.id === 'wc-stub') return (await fetchWorldCupLive()) || m;
+  return m;
+}
+
+function renderMarketList(items) {
+  $dropdown.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'market-group-head';
+    empty.textContent = 'No matches';
+    $dropdown.appendChild(empty);
+    return;
+  }
+  const groups = new Map();
+  for (const it of items) {
+    const g = it.group || 'OTHER';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  }
+  for (const [g, arr] of groups) {
+    const h = document.createElement('div');
+    h.className = 'market-group-head';
+    h.textContent = g;
+    $dropdown.appendChild(h);
+    for (const it of arr) {
+      const el = document.createElement('div');
+      el.className = 'market-item';
+      el.innerHTML = `<span class="tag">${it.tag}</span><span class="lbl">${it.title}</span>${it.sub ? `<span class="meta">${it.sub}</span>` : ''}`;
+      el.onclick = async () => {
+        $input.value = it.title;
+        $dropdown.classList.remove('open');
+        const m = await resolveStub(it.market);
+        switchMarket(m);
+      };
+      $dropdown.appendChild(el);
+    }
+  }
+}
+
+// Generic upcoming-match search across multiple sport tags (basketball + soccer for now)
+async function searchMatches(q) {
+  if (!q || q.length < 2) return [];
+  if (searchAbort) searchAbort.abort();
+  searchAbort = new AbortController();
+  const TAGS = [
+    { slug: 'soccer', sport: 'soccer', label: 'SOCCER' },
+    { slug: 'nba',    sport: 'basketball', label: 'NBA' },
+    { slug: 'fifa-world-cup', sport: 'soccer', label: 'WC26' },
+  ];
+  const ql = q.toLowerCase();
+  const now = Date.now();
+  const all = [];
+  try {
+    for (const t of TAGS) {
+      const url = `${GAMMA}/events?closed=false&active=true&tag_slug=${t.slug}&limit=50&order=startDate&ascending=true`;
+      const r = await fetch(url, { signal: searchAbort.signal });
+      const arr = await r.json();
+      const filtered = arr
+        .filter(e => /\bvs\.?\b/i.test(e.title || ''))
+        .filter(e => e.endDate && new Date(e.endDate).getTime() > now)
+        .filter(e => (e.title || '').toLowerCase().includes(ql))
+        .slice(0, 8);
+      for (const e of filtered) {
+        const titleMatch = (e.title || '').match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+        if (!titleMatch) continue;
+        const teamA = titleMatch[1].trim();
+        const teamB = titleMatch[2].trim();
+        // Try team-Yes per-team markets first (soccer/WC style)
+        const teamYes = {};
+        for (const m of (e.markets || [])) {
+          const tName = extractTeamFromWinQ(m.question || '');
+          if (!tName) continue;
+          const prices = parseArr(m.outcomePrices).map(Number);
+          if (prices.length === 2) teamYes[tName] = { price: prices[0], id: m.id };
+        }
+        let market = null;
+        if (teamYes[teamA] && teamYes[teamB]) {
+          const sum = teamYes[teamA].price + teamYes[teamB].price;
+          const pA = sum > 0 ? teamYes[teamA].price / sum : 0.5;
+          const pB = sum > 0 ? teamYes[teamB].price / sum : 0.5;
+          market = {
+            id: `${t.slug}-${e.id}`, eventId: e.id, eventTitle: e.title,
+            sport: t.sport, tag: t.label,
+            outcomes: [teamA, teamB], prices: [pA, pB],
+            endDate: e.endDate, isSoccerMatch: true,
+          };
+        } else {
+          // NBA-style 2-outcome market (outcomes are team names)
+          for (const m of (e.markets || [])) {
+            const outs = parseArr(m.outcomes);
+            const prices = parseArr(m.outcomePrices).map(Number);
+            if (outs.length === 2 && prices.length === 2 &&
+                outs.some(o => o.toLowerCase().includes(teamA.toLowerCase()) || o.toLowerCase().includes(teamB.toLowerCase()))) {
+              market = {
+                id: m.id, eventId: e.id, eventTitle: e.title,
+                sport: t.sport, tag: t.label,
+                outcomes: outs, prices, endDate: e.endDate,
+              };
+              break;
+            }
+          }
+        }
+        if (market) all.push({
+          group: `${t.label} · UPCOMING`,
+          tag: t.label,
+          title: e.title,
+          sub: e.endDate ? new Date(e.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
+          market,
+        });
+      }
+    }
+    return all;
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('search', e);
+    return [];
+  }
+}
+const searchSoccerMatches = searchMatches; // back-compat alias
+
+function buildBaseList() {
+  const items = [];
+  // Stubs
+  items.push({ group: 'LIVE FEEDS', tag: btcMarketStub.tag, title: btcMarketStub.eventTitle, market: btcMarketStub });
+  items.push({ group: 'LIVE FEEDS', tag: oilMarketStub.tag, title: oilMarketStub.eventTitle, market: oilMarketStub });
+  items.push({ group: 'LIVE FEEDS', tag: wcMarketStub.tag, title: wcMarketStub.eventTitle, market: wcMarketStub });
+  // NBA + cached registry
+  for (const r of marketRegistry) items.push(r);
+  return items;
+}
+
+function filterList(query) {
+  const all = buildBaseList();
+  if (!query) return all;
+  const q = query.toLowerCase();
+  return all.filter(it => it.title.toLowerCase().includes(q) || it.tag.toLowerCase().includes(q));
+}
+
+// ── Ticker (embedded inside the scoreboard) — fetch related markets, render strip canvas, texture scrolls via UV offset
+async function refreshTicker(sport) {
+  if (!tickerSourceCanvas) return;
+  const tagBySport = { soccer: 'soccer', basketball: 'nba', crypto: 'crypto', oil: 'sports' };
+  const tag = tagBySport[sport] || 'sports';
+  try {
+    const url = `${GAMMA}/events?closed=false&active=true&tag_slug=${tag}&limit=80&order=volume24hr&ascending=false`;
+    const arr = await (await fetch(url)).json();
+    const now = Date.now();
+    const items = [];
+    for (const e of arr) {
+      if (items.length >= 40) break;
+      const title = e.title || '';
+      if (!/\bvs\.?\b/i.test(title)) continue;
+      if (e.endDate && new Date(e.endDate).getTime() < now) continue;
+      const titleMatch = title.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+      if (!titleMatch) continue;
+      const teamA = titleMatch[1].trim();
+      const teamB = titleMatch[2].trim();
+      const teamYes = {};
+      for (const m of (e.markets || [])) {
+        const t = extractTeamFromWinQ(m.question || '');
+        if (!t) continue;
+        const px = parseArr(m.outcomePrices).map(Number);
+        if (px.length === 2) teamYes[t] = px[0];
+      }
+      let pa = teamYes[teamA], pb = teamYes[teamB];
+      if (pa == null || pb == null) {
+        for (const m of (e.markets || [])) {
+          const outs = parseArr(m.outcomes);
+          const px = parseArr(m.outcomePrices).map(Number);
+          if (outs.length === 2 && px.length === 2) { pa = px[0]; pb = px[1]; break; }
+        }
+      }
+      if (pa == null || pb == null) continue;
+      const sum = pa + pb;
+      const pAn = sum > 0 ? pa/sum : 0.5;
+      const pBn = sum > 0 ? pb/sum : 0.5;
+      items.push({ teamA, teamB, pA: pAn, pB: pBn });
+    }
+    paintTickerStrip(items);
+  } catch (e) { console.warn('ticker', e); }
+}
+
+function paintTickerStrip(items) {
+  if (!tickerSourceCanvas || !items.length) return;
+  // Bigger logical pixels in the strip → bigger on-screen text + better aspect ratio
+  const ITEM_W = 900;
+  const stripH = 200;
+  const targetW = Math.max(1, items.length) * ITEM_W;
+  if (tickerSourceCanvas.width !== targetW) tickerSourceCanvas.width = targetW;
+  tickerSourceCanvas.height = stripH;
+  const c = tickerSourceCanvas;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#040608';
+  ctx.fillRect(0, 0, c.width, stripH);
+  const itemOpts = { fontSize: 110, cell: 9, dotRadius: 3.6, weight: 700, color: '#e8eef6', offAlpha: 0.05 };
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const x = i * ITEM_W;
+    const txt = `${it.teamA.slice(0, 12).toUpperCase()} ${Math.round(it.pA*100)}%  ·  ${it.teamB.slice(0, 12).toUpperCase()} ${Math.round(it.pB*100)}%`;
+    const cv = dotMatrixText(txt, itemOpts);
+    const maxW = ITEM_W - 60;
+    const s = Math.min(1, maxW / cv.width);
+    ctx.drawImage(cv, x + 30, stripH/2 - (cv.height*s)/2, cv.width*s, cv.height*s);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x + ITEM_W - 4, 40, 2, stripH - 80);
+  }
+  tickerStripWidth = c.width;
+  tickerStripHeight = c.height;
+  if (tickerTex) {
+    tickerTex.needsUpdate = true;
+    tickerTex.repeat.x = tickerPlaneAspect / (tickerStripWidth / tickerStripHeight);
+  }
+}
+
+async function loadMarkets() {
+  const markets = await fetchMarkets();
+  for (const m of markets) {
+    marketRegistry.push({
+      group: `${m.tag} · LIVE`,
+      tag: m.tag,
+      title: m.eventTitle || `${m.outcomes[0]} vs ${m.outcomes[1]}`,
+      market: m,
+    });
+  }
+  renderMarketList(buildBaseList());
+
+  // Input wiring — clearing on focus so the FULL list is visible, restore on blur if nothing picked
+  let debounceId;
+  let stashedSelection = '';
+  $input.addEventListener('focus', () => {
+    stashedSelection = $input.value;
+    $input.value = '';                // deselect: show all options
+    $input.select();
+    $dropdown.classList.add('open');
+    renderMarketList(buildBaseList());
+  });
+  $input.addEventListener('blur', () => {
+    // If user blurred without picking and input is empty, restore the previous selection
+    setTimeout(() => {
+      if ($input.value === '' && stashedSelection) $input.value = stashedSelection;
+    }, 200); // delay so item-click handler runs first
+  });
+  $input.addEventListener('input', () => {
+    const q = $input.value.trim();
+    $dropdown.classList.add('open');
+    const base = filterList(q);
+    renderMarketList(base);
+    if (debounceId) clearTimeout(debounceId);
+    if (q.length >= 2) {
+      // Inline loading row at the bottom while the API search is in flight
+      const loadingEl = document.createElement('div');
+      loadingEl.className = 'market-group-head';
+      loadingEl.textContent = `SEARCHING POLYMARKET FOR "${q.toUpperCase()}"…`;
+      loadingEl.style.color = '#8a93a3';
+      $dropdown.appendChild(loadingEl);
+      debounceId = setTimeout(async () => {
+        const extras = await searchMatches(q);
+        // Re-render with results
+        renderMarketList([...filterList(q), ...extras]);
+        if (!extras.length) {
+          const noRes = document.createElement('div');
+          noRes.className = 'market-group-head';
+          noRes.textContent = `NO LIVE MATCHES FOR "${q.toUpperCase()}"`;
+          $dropdown.appendChild(noRes);
+        }
+      }, 250);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!$picker.contains(e.target)) $dropdown.classList.remove('open');
+  });
+
+  // Default to first NBA event, else first item
+  const firstNba = marketRegistry.find(r => r.tag === 'NBA');
+  const def = firstNba || marketRegistry[0] || { market: btcMarketStub, title: btcMarketStub.eventTitle };
+  $input.value = def.title;
+  const m = await resolveStub(def.market);
+  switchMarket(m);
+}
+
+async function switchMarket(market) {
+  state.market = market;
+  state.marketId = market.id;
+  const [pA, pB] = market.prices;
+  state.oddsA = pA; state.oddsB = pB;
+  const cap = capacityFor(market.sport);
+  state.targetA = Math.round(pA * cap);
+  state.targetB = Math.round(pB * cap);
+  state.lastA = state.targetA;
+  state.lastB = state.targetB;
+
+  let pAColor, sAColor, pBColor, sBColor;
+  if (market.sport === 'crypto') {
+    // Bitcoin orange both sides — distinguished by ⬆/⬇ icons + position, not by colors
+    pAColor = '#f7931a'; sAColor = '#c46a00';
+    pBColor = '#f7931a'; sBColor = '#c46a00';
+  } else if (market.sport === 'oil') {
+    // Yes (resolves) = green, No = red
+    pAColor = '#00e676'; sAColor = '#00a050';
+    pBColor = '#ff3b3b'; sBColor = '#8b0000';
+  } else if (market.sport === 'soccer') {
+    [pAColor, sAColor] = wcColorsFor(market.outcomes[0]);
+    [pBColor, sBColor] = wcColorsFor(market.outcomes[1]);
+  } else {
+    [pAColor, sAColor] = colorsFor(market.outcomes[0]);
+    [pBColor, sBColor] = colorsFor(market.outcomes[1]);
+  }
+
+  sideA.rebuildAll(); sideB.rebuildAll();
+  sideA.setStyle(market.sport, pAColor, sAColor);
+  sideB.setStyle(market.sport, pBColor, sBColor);
+
+  // Color delivered by the top neon strip + its downward spotlight — frame stays chrome
+  // Team identity = a subtle emissive tint on the chrome frame (anodized look). No interior color lights.
+  halfA.frameMat.emissive.set(hexToInt(pAColor));
+  halfA.frameMat.emissiveIntensity = 0.35;
+  halfB.frameMat.emissive.set(hexToInt(pBColor));
+  halfB.frameMat.emissiveIntensity = 0.35;
+  refreshTicker(market.sport);
+  // Stash colors for scoreboard reuse on poll updates
+  state.colorA = typeof pAColor === 'string' ? pAColor : `#${pAColor.toString(16).padStart(6,'0')}`;
+  state.colorB = typeof pBColor === 'string' ? pBColor : `#${pBColor.toString(16).padStart(6,'0')}`;
+  updateScoreboard();
+
+  setGhostText(market.outcomes[0], market.outcomes[1], hexToInt(pAColor), hexToInt(pBColor));
+  setHud(market, pA, pB, 0, 0);
+
+  // Initial fill
+  fillInitial();
+}
+
+let fillIntervalId = null;
+function fillInitial() {
+  // Cancel any cascade still in progress from a previous switchMarket
+  if (fillIntervalId !== null) { clearInterval(fillIntervalId); fillIntervalId = null; }
+  let i = 0;
+  const total = state.targetA + state.targetB;
+  const seq = [];
+  for (let k = 0; k < state.targetA; k++) seq.push('A');
+  for (let k = 0; k < state.targetB; k++) seq.push('B');
+  for (let k = seq.length - 1; k > 0; k--) { const j = (Math.random() * (k+1))|0; [seq[k], seq[j]] = [seq[j], seq[k]]; }
+  fillIntervalId = setInterval(() => {
+    if (i >= total) { clearInterval(fillIntervalId); fillIntervalId = null; return; }
+    if (seq[i] === 'A') sideA.spawnBall();
+    else sideB.spawnBall();
+    i++;
+  }, 60);
+}
+
+async function pollOdds() {
+  if (!state.marketId) return;
+  let prices;
+  if (state.market.isUpDown) {
+    const live = await fetchUpDownLive(state.market.asset);
+    if (!live) return;
+    if (live.id !== state.marketId) { await switchMarket(live); return; }
+    prices = live.prices;
+  } else if (state.market.isOilStrike) {
+    prices = await fetchMarketOdds(state.marketId);
+  } else if (state.market.isWorldCup) {
+    const live = await fetchWorldCupLive();
+    if (!live) return;
+    if (live.eventId !== state.market.eventId
+        || live.outcomes[0] !== state.market.outcomes[0]
+        || live.outcomes[1] !== state.market.outcomes[1]) {
+      await switchMarket(live); return;
+    }
+    prices = live.prices;
+  } else if (state.market.isSoccerMatch) {
+    // Re-fetch the event and recompute normalized team-Yes prices
+    try {
+      const r = await fetch(`${GAMMA}/events/${state.market.eventId}`);
+      const ev = await r.json();
+      const [teamAName, teamBName] = state.market.outcomes;
+      let pa = null, pb = null;
+      for (const m of (ev.markets || [])) {
+        const t = extractTeamFromWinQ(m.question || '');
+        if (!t) continue;
+        const px = parseArr(m.outcomePrices).map(Number);
+        if (px.length !== 2) continue;
+        if (t === teamAName) pa = px[0];
+        else if (t === teamBName) pb = px[0];
+      }
+      if (pa == null || pb == null) return;
+      const sum = pa + pb;
+      prices = sum > 0 ? [pa/sum, pb/sum] : [0.5, 0.5];
+    } catch { return; }
+  } else {
+    prices = await fetchMarketOdds(state.marketId);
+  }
+  if (!prices) return;
+  const [pA, pB] = prices;
+  state.oddsA = pA; state.oddsB = pB;
+  const cap = capacityFor(state.market.sport);
+  const newA = Math.round(pA * cap);
+  const newB = Math.round(pB * cap);
+
+  const dA = newA - state.lastA;
+  const dB = newB - state.lastB;
+
+  // Apply changes
+  applyDelta(sideA, trapL, dA);
+  applyDelta(sideB, trapR, dB);
+
+  state.lastA = newA;
+  state.lastB = newB;
+
+  setHud(state.market, pA, pB,
+    (pA*100) - (state.market.prices[0]*100),
+    (pB*100) - (state.market.prices[1]*100));
+  $statusText.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
+  updateScoreboard();
+
+}
+// Independent 5s churn timer — runs only when a BTC market is active
+setInterval(() => { if (state.market?.isUpDown) churnBtc(); }, 5000);
+
+// Cycle coins on each side: drop new ones in from above, silently retire the oldest already at rest.
+// Doesn't touch the trapdoor (which drains the whole pile via gravity).
+function churnBtc() {
+  for (const side of [sideA, sideB]) {
+    if (side.balls.length < 4) continue;
+    const churn = 4;
+    // Pick the bottom-most resting coins (lowest y) and queue them for silent removal
+    const resting = side.balls
+      .map((b, i) => ({ b, i, y: b.body.translation().y }))
+      .filter(o => Math.abs(o.b.body.linvel().y) < 0.1) // already settled
+      .sort((a, c) => a.y - c.y)
+      .slice(0, churn);
+    // Spawn new coins from the top first (so total temporarily exceeds target during cascade)
+    for (let k = 0; k < churn; k++) setTimeout(() => side.spawnBall(), k * 110);
+    // Despawn the old ones after the new ones have time to land
+    setTimeout(() => {
+      for (const o of resting) {
+        const idx = side.balls.indexOf(o.b);
+        if (idx === -1) continue;
+        side.balls.splice(idx, 1);
+        scene.remove(o.b.mesh); disposeBallMesh(o.b.mesh);
+        world.removeRigidBody(o.b.body);
+      }
+    }, 1400);
+  }
+}
+
+function applyDelta(side, trap, delta) {
+  if (delta > 0) {
+    // Add balls
+    let added = 0;
+    const adder = setInterval(() => {
+      if (added >= delta) { clearInterval(adder); return; }
+      side.spawnBall(); added++;
+    }, 80);
+  } else if (delta < 0) {
+    trap.open(900);
+    // Balls fall out via gravity; cleanupFallen() removes them
+    // But we also need to bound: kill the lowest N balls by giving them y-velocity if floor doesn't reach
+    // The trapdoor opening alone may not drop exactly |delta| balls — for v1 we accept that gravity drops "some" and we re-sync next tick
+    // To be precise: pick |delta| balls and unghost them = lift very slightly to let them slide out, then on next tick the count corrects via additional removals
+    // Simplest: after trapdoor opens, count current balls; if still > target after 1.5s, force-remove extras
+    setTimeout(() => {
+      const target = side === sideA ? state.lastA + delta : state.lastB + delta; // delta is negative
+      while (side.balls.length > target) {
+        const b = side.balls.pop();
+        scene.remove(b.mesh);
+        disposeBallMesh(b.mesh);
+        world.removeRigidBody(b.body);
+      }
+      // If not enough on the field (e.g., still rolling down), spawn back to target as a safety
+      while (side.balls.length < target) side.spawnBall();
+    }, 1400);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// RENDER LOOP
+// ─────────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function loop() {
+  const dt = Math.min(0.033, clock.getDelta());
+  // Physics step
+  world.step(eventQueue);
+  // Trapdoors
+  trapL.update(dt);
+  trapR.update(dt);
+  // Sync ball meshes
+  const spawnRate = dt * 12; // 1/0.083s → ~80ms tween, near-instant
+  for (const side of [sideA, sideB]) {
+    for (const b of side.balls) {
+      const t = b.body.translation();
+      const r = b.body.rotation();
+      b.mesh.position.set(t.x, t.y, t.z);
+      b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      // Spawn-in scale tween (ease-out cubic)
+      const ud = b.mesh.userData;
+      if (ud.spawnT !== undefined && ud.spawnT < 1) {
+        ud.spawnT = Math.min(1, ud.spawnT + spawnRate);
+        const e = 1 - Math.pow(1 - ud.spawnT, 3);
+        b.mesh.scale.setScalar(ud.targetScale * (0.01 + 0.99 * e));
+      }
+    }
+    side.cleanupFallen();
+  }
+  // Camera tween (locked angles)
+  if (camTweenT < 1) {
+    camTweenT = Math.min(1, camTweenT + dt * 1.6);
+    const e = camTweenT < 0.5 ? 2 * camTweenT * camTweenT : 1 - Math.pow(-2 * camTweenT + 2, 2) / 2;
+    camera.position.lerpVectors(camFromPos, camToPos, e);
+  }
+  camera.lookAt(CAM_TARGET);
+  // Ticker scroll via UV offset — cheap, no GPU re-upload
+  if (tickerTex) tickerTex.offset.x = (performance.now() * 0.00006) % 1;
+  composer.render();
+  requestAnimationFrame(loop);
+}
+
+// Camera angle buttons
+document.querySelectorAll('.cam-btn').forEach(b => {
+  b.addEventListener('click', () => setCamera(parseInt(b.dataset.cam, 10)));
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === '1') setCamera(0);
+  if (e.key === '2') setCamera(1);
+  if (e.key === '3') setCamera(2);
+});
+
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// BOOT
+// ─────────────────────────────────────────────────────────────────────
+loop();
+mountScoreboard();
+window.__dbg = { scene, sideA: null, sideB: null, get protos(){ return { j: !!oildrumProto, s: !!soccerProto, b: !!basketballProto, c: !!bitcoinProto }; } };
+
+// ── Real GSAP loader — tied to loading milestones, exits after first market is ready
+const loader = (() => {
+  if (typeof gsap === 'undefined') return { progress: () => {}, finish: () => { document.getElementById('loading').remove(); } };
+  if (gsap.registerPlugin && typeof CustomEase !== 'undefined') gsap.registerPlugin(CustomEase, SplitText);
+  if (typeof CustomEase !== 'undefined') CustomEase.create('loader', '0.65, 0.01, 0.05, 0.99');
+
+  const wrap = document.querySelector('[data-load-wrap]');
+  const bg = wrap.querySelector('[data-load-bg]');
+  const progressBar = wrap.querySelector('[data-load-progress]');
+  const logo = wrap.querySelector('[data-load-logo]');
+  const container = wrap.querySelector('[data-load-container]');
+  const textElements = Array.from(wrap.querySelectorAll('[data-load-text]'));
+  const resetTargets = Array.from(wrap.querySelectorAll('[data-load-reset]:not([data-load-text])'));
+  if (resetTargets.length) gsap.set(resetTargets, { autoAlpha: 1 });
+
+  // Text cycle (split chars in/out)
+  let firstWord, secondWord;
+  if (textElements.length >= 2 && typeof SplitText !== 'undefined') {
+    firstWord = new SplitText(textElements[0], { type: 'lines,chars', mask: 'lines' });
+    secondWord = new SplitText(textElements[1], { type: 'lines,chars', mask: 'lines' });
+    gsap.set([firstWord.chars, secondWord.chars], { autoAlpha: 0, yPercent: 125 });
+    gsap.set(textElements, { autoAlpha: 1 });
+    gsap.to(firstWord.chars, { autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.015 }, ease: 'loader' });
+  }
+
+  let currentProgress = 0;
+  let switchedText = false;
+  function progress(p) {
+    const v = Math.max(currentProgress, Math.min(1, p));
+    currentProgress = v;
+    gsap.to(progressBar, { scaleX: v, duration: 0.4, ease: 'loader' });
+    // Halfway: swap text
+    if (v >= 0.5 && !switchedText && firstWord && secondWord) {
+      switchedText = true;
+      gsap.to(firstWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.3, stagger: { each: 0.012 }, ease: 'loader' });
+      gsap.to(secondWord.chars, { autoAlpha: 1, yPercent: 0, duration: 0.4, stagger: { each: 0.015 }, ease: 'loader' }, '<0.1');
+    }
+  }
+
+  function finish() {
+    // Run exit: full bar, then collapse, then bg slides up out of view
+    const tl = gsap.timeline({ defaults: { ease: 'loader' } });
+    tl.to(progressBar, { scaleX: 1, duration: 0.35 });
+    tl.to(logo, { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.35 }, '<');
+    if (secondWord) tl.to(secondWord.chars, { autoAlpha: 0, yPercent: -125, duration: 0.25, stagger: { each: 0.012 } }, '<0.05');
+    tl.to(container, { autoAlpha: 0, duration: 0.3 });
+    tl.to(progressBar, { scaleX: 0, transformOrigin: 'right center', duration: 0.3 }, '<');
+    tl.to(bg, { yPercent: -101, duration: 0.6 });
+    tl.set(wrap, { display: 'none' });
+  }
+  return { progress, finish };
+})();
+
+loader.progress(0.15);
+
+// Background asset load (40MB of GLB textures) — updates loader past 50% as they complete
+loadAssetsBackground().then(() => {
+  loader.progress(0.9);
+  const s = state.market?.sport;
+  if (s === 'oil' || s === 'basketball' || s === 'soccer' || s === 'crypto') switchMarket(state.market);
+});
+
+loader.progress(0.4);
+await loadMarkets();
+loader.progress(0.85);
+// Give the first switchMarket a tick to populate the scene, then exit
+setTimeout(() => loader.finish(), 250);
+// Scoreboard repaint timer — so the middle cell (countdown/date) ticks live without waiting for the next odds poll
+setInterval(() => { updateScoreboard(); }, 1000);
+
+// Tighter polling for BTC (more lively), slower for sports markets
+let lastPoll = 0;
+setInterval(() => {
+  const interval = state.market?.isUpDown ? 1500 : POLL_MS;
+  if (performance.now() - lastPoll >= interval) {
+    lastPoll = performance.now();
+    pollOdds();
+  }
+}, 1000);
+</script>
+</body>
+</html>
